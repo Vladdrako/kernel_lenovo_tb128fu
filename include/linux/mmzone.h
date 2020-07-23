@@ -234,6 +234,8 @@ static inline int is_active_lru(enum lru_list lru)
 }
 #define ANON_AND_FILE 2
 
+#define ANON_AND_FILE 2
+
 struct zone_reclaim_stat {
 	/*
 	 * The pageout code in vmscan.c keeps track of how many of the
