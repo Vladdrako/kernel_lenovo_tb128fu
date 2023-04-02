@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/uaccess.h>
@@ -155,7 +154,6 @@ static int cam_jpeg_mgr_process_irq(void *priv, void *data)
 		CAM_ERR(CAM_JPEG, "Invalid offset: %u cmd buf len: %zu",
 			p_cfg_req->hw_cfg_args.hw_update_entries[
 			CAM_JPEG_PARAM].offset, cmd_buf_len);
-		cam_mem_put_cpu_buf(mem_hdl);
 		return -EINVAL;
 	}
 
@@ -182,7 +180,6 @@ static int cam_jpeg_mgr_process_irq(void *priv, void *data)
 	mutex_lock(&g_jpeg_hw_mgr.hw_mgr_mutex);
 	list_add_tail(&p_cfg_req->list, &hw_mgr->free_req_list);
 	mutex_unlock(&g_jpeg_hw_mgr.hw_mgr_mutex);
-	cam_mem_put_cpu_buf(mem_hdl);
 	return rc;
 }
 
@@ -284,8 +281,6 @@ static int cam_jpeg_insert_cdm_change_base(
 	if (config_args->hw_update_entries[CAM_JPEG_CHBASE].offset >=
 		ch_base_len) {
 		CAM_ERR(CAM_JPEG, "Not enough buf");
-		cam_mem_put_cpu_buf(
-			config_args->hw_update_entries[CAM_JPEG_CHBASE].handle);
 		return -EINVAL;
 	}
 	CAM_DBG(CAM_JPEG, "iova %pK len %zu offset %d",
@@ -310,14 +305,12 @@ static int cam_jpeg_insert_cdm_change_base(
 		config_args->hw_update_entries[CAM_JPEG_CHBASE].offset;
 	cdm_cmd->cmd[cdm_cmd->cmd_arrary_count].len = size * sizeof(uint32_t);
 	cdm_cmd->cmd_arrary_count++;
+	cdm_cmd->gen_irq_arb = false;
 
 	ch_base_iova_addr += size;
 	*ch_base_iova_addr = 0;
 	ch_base_iova_addr += size;
 	*ch_base_iova_addr = 0;
-
-	cam_mem_put_cpu_buf(
-		config_args->hw_update_entries[CAM_JPEG_CHBASE].handle);
 
 	return rc;
 }
@@ -449,6 +442,7 @@ static int cam_jpeg_mgr_process_cmd(void *priv, void *data)
 	cdm_cmd->userdata = NULL;
 	cdm_cmd->cookie = 0;
 	cdm_cmd->cmd_arrary_count = 0;
+	cdm_cmd->gen_irq_arb = false;
 
 	rc = cam_jpeg_insert_cdm_change_base(config_args,
 		ctx_data, hw_mgr);
@@ -467,6 +461,8 @@ static int cam_jpeg_mgr_process_cmd(void *priv, void *data)
 			cmd->offset;
 		cdm_cmd->cmd[cdm_cmd->cmd_arrary_count].len =
 			cmd->len;
+		cdm_cmd->cmd[cdm_cmd->cmd_arrary_count].arbitrate =
+			false;
 		CAM_DBG(CAM_JPEG, "i %d entry h %d o %d l %d",
 			i, cmd->handle, cmd->offset, cmd->len);
 		cdm_cmd->cmd_arrary_count++;
@@ -735,9 +731,8 @@ static int cam_jpeg_mgr_prepare_hw_update(void *hw_mgr_priv,
 		return rc;
 	}
 
-	if (!packet->num_cmd_buf ||
-		(packet->num_cmd_buf > 5) ||
-		!packet->num_patches || !packet->num_io_configs ||
+	if ((packet->num_cmd_buf > 5) || !packet->num_patches ||
+		!packet->num_io_configs ||
 		(packet->num_io_configs > CAM_JPEG_IMAGE_MAX)) {
 		CAM_ERR(CAM_JPEG,
 			"wrong number of cmd/patch/io_configs info: %u %u %u",
@@ -1200,6 +1195,7 @@ static int cam_jpeg_mgr_acquire_hw(void *hw_mgr_priv, void *acquire_hw_args)
 		cdm_acquire.base_array_cnt = 1;
 		cdm_acquire.id = CAM_CDM_VIRTUAL;
 		cdm_acquire.cam_cdm_callback = NULL;
+		cdm_acquire.priority = CAM_CDM_BL_FIFO_0;
 
 		rc = cam_cdm_acquire(&cdm_acquire);
 		if (rc) {
@@ -1296,16 +1292,6 @@ copy_error:
 	return rc;
 }
 
-static void cam_req_mgr_process_workq_jpeg_command_queue(struct work_struct *w)
-{
-	cam_req_mgr_process_workq(w);
-}
-
-static void cam_req_mgr_process_workq_jpeg_message_queue(struct work_struct *w)
-{
-	cam_req_mgr_process_workq(w);
-}
-
 static int cam_jpeg_setup_workqs(void)
 {
 	int rc, i;
@@ -1314,8 +1300,7 @@ static int cam_jpeg_setup_workqs(void)
 		"jpeg_command_queue",
 		CAM_JPEG_WORKQ_NUM_TASK,
 		&g_jpeg_hw_mgr.work_process_frame,
-		CRM_WORKQ_USAGE_NON_IRQ, 0, false,
-		cam_req_mgr_process_workq_jpeg_command_queue);
+		CRM_WORKQ_USAGE_NON_IRQ, 0);
 	if (rc) {
 		CAM_ERR(CAM_JPEG, "unable to create a worker %d", rc);
 		goto work_process_frame_failed;
@@ -1325,8 +1310,7 @@ static int cam_jpeg_setup_workqs(void)
 		"jpeg_message_queue",
 		CAM_JPEG_WORKQ_NUM_TASK,
 		&g_jpeg_hw_mgr.work_process_irq_cb,
-		CRM_WORKQ_USAGE_IRQ, 0, false,
-		cam_req_mgr_process_workq_jpeg_message_queue);
+		CRM_WORKQ_USAGE_IRQ, 0);
 	if (rc) {
 		CAM_ERR(CAM_JPEG, "unable to create a worker %d", rc);
 		goto work_process_irq_cb_failed;
@@ -1566,7 +1550,7 @@ static int cam_jpeg_mgr_hw_dump(void *hw_mgr_priv, void *dump_hw_args)
 
 hw_dump:
 	cur_time = ktime_get();
-	diff = ktime_us_delta(cur_time, p_cfg_req->submit_timestamp);
+	diff = ktime_us_delta(p_cfg_req->submit_timestamp, cur_time);
 	cur_ts = ktime_to_timespec64(cur_time);
 	req_ts = ktime_to_timespec64(p_cfg_req->submit_timestamp);
 
@@ -1602,7 +1586,6 @@ hw_dump:
 		CAM_WARN(CAM_JPEG, "dump offset overshoot len %zu offset %zu",
 			jpeg_dump_args.buf_len, dump_args->offset);
 		mutex_unlock(&hw_mgr->hw_mgr_mutex);
-		cam_mem_put_cpu_buf(dump_args->buf_handle);
 		return -ENOSPC;
 	}
 
@@ -1613,7 +1596,6 @@ hw_dump:
 		CAM_WARN(CAM_JPEG, "dump buffer exhaust remain %zu min %u",
 			remain_len, min_len);
 		mutex_unlock(&hw_mgr->hw_mgr_mutex);
-		cam_mem_put_cpu_buf(dump_args->buf_handle);
 		return -ENOSPC;
 	}
 
@@ -1646,7 +1628,6 @@ hw_dump:
 	CAM_DBG(CAM_JPEG, "Offset before %u after %u",
 		dump_args->offset, jpeg_dump_args.offset);
 	dump_args->offset = jpeg_dump_args.offset;
-	cam_mem_put_cpu_buf(dump_args->buf_handle);
 	return rc;
 }
 

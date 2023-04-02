@@ -1287,6 +1287,7 @@ static int msm_dai_q6_island_mode_put(struct snd_kcontrol *kcontrol,
 	u16 port_id = (u16)kcontrol->private_value;
 
 	pr_debug("%s: island mode = %d\n", __func__, value);
+	trace_printk("%s: island mode = %d\n", __func__, value);
 
 	afe_set_island_mode_cfg(port_id, value);
 	return 0;
@@ -3895,20 +3896,20 @@ static const struct snd_kcontrol_new rt_proxy_config_controls[] = {
 };
 
 static const struct snd_kcontrol_new usb_audio_cfg_controls[] = {
-	SOC_SINGLE_EXT("USB_AUDIO_RX dev_token", 0, 0, INT_MAX, 0,
+	SOC_SINGLE_EXT("USB_AUDIO_RX dev_token", 0, 0, UINT_MAX, 0,
 			msm_dai_q6_usb_audio_cfg_get,
 			msm_dai_q6_usb_audio_cfg_put),
 	SOC_SINGLE_EXT("USB_AUDIO_RX endian", 0, 0, 1, 0,
 			msm_dai_q6_usb_audio_endian_cfg_get,
 			msm_dai_q6_usb_audio_endian_cfg_put),
-	SOC_SINGLE_EXT("USB_AUDIO_TX dev_token", 0, 0, INT_MAX, 0,
+	SOC_SINGLE_EXT("USB_AUDIO_TX dev_token", 0, 0, UINT_MAX, 0,
 			msm_dai_q6_usb_audio_cfg_get,
 			msm_dai_q6_usb_audio_cfg_put),
 	SOC_SINGLE_EXT("USB_AUDIO_TX endian", 0, 0, 1, 0,
 			msm_dai_q6_usb_audio_endian_cfg_get,
 			msm_dai_q6_usb_audio_endian_cfg_put),
 	SOC_SINGLE_EXT("USB_AUDIO_RX service_interval", SND_SOC_NOPM, 0,
-			INT_MAX, 0,
+			UINT_MAX, 0,
 			msm_dai_q6_usb_audio_svc_interval_get,
 			msm_dai_q6_usb_audio_svc_interval_put),
 };
@@ -9852,7 +9853,7 @@ static int msm_dai_q6_tdm_prepare(struct snd_pcm_substream *substream,
 			 * if only one port, don't do group enable as there
 			 * is no group need for only one port
 			 */
-			if (dai_data->num_group_ports > 1) {
+			if (dai_data->num_group_ports >= 1) {
 				rc = afe_port_group_enable(group_id,
 					&dai_data->group_cfg, true,
 					&dai_data->lane_cfg);

@@ -552,9 +552,15 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 {
 	struct snd_soc_component *component = mbhc->component;
 	bool is_pa_on = false;
+	bool is_lineout =false;
 	u8 fsm_en = 0;
 
 	WCD_MBHC_RSC_ASSERT_LOCKED(mbhc);
+
+	if (jack_type == SND_JACK_LINEOUT) {
+		jack_type = SND_JACK_HEADPHONE;
+		pr_err("%s: audiock LINEOUT to HEADPHONE inserton %d hph_status %x\n",__func__,insertion,mbhc->hph_status);
+	}
 
 	pr_debug("%s: enter insertion %d hph_status %x\n",
 		 __func__, insertion, mbhc->hph_status);
@@ -594,7 +600,7 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 
 		mbhc->hph_type = WCD_MBHC_HPH_NONE;
 		mbhc->zl = mbhc->zr = 0;
-		pr_info("%s: Reporting removal %d(%x)\n", __func__,
+		pr_debug("%s: Reporting removal %d(%x)\n", __func__,
 			 jack_type, mbhc->hph_status);
 		wcd_mbhc_jack_report(mbhc, &mbhc->headset_jack,
 				mbhc->hph_status, WCD_MBHC_JACK_MASK);
@@ -654,6 +660,7 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 			}
 			mbhc->hph_status &= ~(SND_JACK_HEADSET |
 						SND_JACK_LINEOUT |
+						SND_JACK_ANC_HEADPHONE |
 						SND_JACK_UNSUPPORTED);
 		}
 
@@ -671,9 +678,8 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 			mbhc->jiffies_atreport = jiffies;
 		} else if (jack_type == SND_JACK_LINEOUT) {
 			mbhc->current_plug = MBHC_PLUG_TYPE_HIGH_HPH;
-		} else {
-			pr_debug("%s: invalid Jack type %d\n",__func__, jack_type);
-		}
+		} else if (jack_type == SND_JACK_ANC_HEADPHONE)
+			mbhc->current_plug = MBHC_PLUG_TYPE_ANC_HEADPHONE;
 
 		if (mbhc->mbhc_cb->hph_pa_on_status)
 			is_pa_on = mbhc->mbhc_cb->hph_pa_on_status(component);
@@ -692,13 +698,9 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 					&mbhc->zl, &mbhc->zr);
 			WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN,
 						 fsm_en);
-			pr_info("%s,compute impedance,zl = %d,zr = %d\n",
-                                    __func__, mbhc->zl, mbhc->zr);
-			if ((((mbhc->zl > mbhc->mbhc_cfg->linein_th) &&
-				(mbhc->zr > mbhc->mbhc_cfg->linein_th)) ||
-				(mbhc->zl == 0) ||
-				(mbhc->zr == 0)) &&
-				(jack_type == SND_JACK_HEADPHONE)) {
+			if ((mbhc->zl > mbhc->mbhc_cfg->linein_th) &&
+				(mbhc->zr > mbhc->mbhc_cfg->linein_th) &&
+				(jack_type == SND_JACK_HEADPHONE)&& is_lineout) {
 				jack_type = SND_JACK_LINEOUT;
 				mbhc->force_linein = true;
 				mbhc->current_plug = MBHC_PLUG_TYPE_HIGH_HPH;
@@ -711,7 +713,7 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 							mbhc->hph_status,
 							WCD_MBHC_JACK_MASK);
 				}
-				pr_info("%s: Marking jack type as SND_JACK_LINEOUT\n",
+				pr_debug("%s: Marking jack type as SND_JACK_LINEOUT\n",
 				__func__);
 			}
 		}
@@ -721,7 +723,7 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 		 * will not be correct resulting in lineout detected
 		 * as headphone.
 		 */
-		if ((is_pa_on) && mbhc->force_linein == true) {
+		if ((is_pa_on) && mbhc->force_linein == true && is_lineout) {
 			jack_type = SND_JACK_LINEOUT;
 			mbhc->current_plug = MBHC_PLUG_TYPE_HIGH_HPH;
 			if (mbhc->hph_status) {
@@ -741,7 +743,7 @@ void wcd_mbhc_report_plug(struct wcd_mbhc *mbhc, int insertion,
 		    mbhc->mbhc_cb->mbhc_micb_ramp_control)
 			mbhc->mbhc_cb->mbhc_micb_ramp_control(component, false);
 
-		pr_info("%s: Reporting insertion %d(%x)\n", __func__,
+		pr_debug("%s: Reporting insertion %d(%x)\n", __func__,
 			 jack_type, mbhc->hph_status);
 		wcd_mbhc_jack_report(mbhc, &mbhc->headset_jack,
 				    (mbhc->hph_status | SND_JACK_MECHANICAL),
@@ -764,7 +766,7 @@ void wcd_mbhc_elec_hs_report_unplug(struct wcd_mbhc *mbhc)
 	else
 		pr_info("%s: hs_detect_plug work not cancelled\n", __func__);
 
-	pr_info("%s: Report extension cable\n", __func__);
+	pr_debug("%s: Report extension cable\n", __func__);
 	wcd_mbhc_report_plug(mbhc, 1, SND_JACK_LINEOUT);
 	/*
 	 * If PA is enabled HPHL schmitt trigger can
@@ -825,17 +827,22 @@ void wcd_mbhc_find_plug_and_report(struct wcd_mbhc *mbhc,
 			wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADSET);
 		wcd_mbhc_report_plug(mbhc, 1, SND_JACK_UNSUPPORTED);
 	} else if (plug_type == MBHC_PLUG_TYPE_HEADSET) {
+		wcd_mbhc_report_plug(mbhc, 0, SND_JACK_HEADPHONE);
 		if (mbhc->mbhc_cfg->enable_anc_mic_detect &&
 		    mbhc->mbhc_fn->wcd_mbhc_detect_anc_plug_type)
 			anc_mic_found =
 			mbhc->mbhc_fn->wcd_mbhc_detect_anc_plug_type(mbhc);
 		jack_type = SND_JACK_HEADSET;
-
+		if (anc_mic_found)
+			jack_type = SND_JACK_ANC_HEADPHONE;
 		/*
 		 * If Headphone was reported previously, this will
 		 * only report the mic line
 		 */
 		wcd_mbhc_report_plug(mbhc, 1, jack_type);
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_BTN_ISRC_CTL, 3);
+                WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_FSM_EN, 1);
+		WCD_MBHC_REG_UPDATE_BITS(WCD_MBHC_ELECT_SCHMT_ISRC, 0);
 	} else if (plug_type == MBHC_PLUG_TYPE_HIGH_HPH) {
 		if (mbhc->mbhc_cfg->detect_extn_cable) {
 			/* High impedance device found. Report as LINEOUT */
@@ -943,10 +950,8 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 		/* If moisture is present, then enable polling, disable
 		 * moisture detection and wait for interrupt
 		 */
-		if (wcd_mbhc_moisture_detect(mbhc, detection_type)){
-			pr_info("%s: hwcd_mbhc_moisture_detect\n", __func__);
+		if (wcd_mbhc_moisture_detect(mbhc, detection_type))
 			goto done;
-		}
 
 		/* Make sure MASTER_BIAS_CTL is enabled */
 		mbhc->mbhc_cb->mbhc_bias(component, true);
@@ -1014,6 +1019,9 @@ static void wcd_mbhc_swch_irq_handler(struct wcd_mbhc *mbhc)
 			mbhc->is_extn_cable = false;
 			jack_type = SND_JACK_LINEOUT;
 			break;
+		case MBHC_PLUG_TYPE_ANC_HEADPHONE:
+			jack_type = SND_JACK_ANC_HEADPHONE;
+			break;
 		default:
 			pr_info("%s: Invalid current plug: %d\n",
 				__func__, mbhc->current_plug);
@@ -1065,7 +1073,7 @@ static irqreturn_t wcd_mbhc_mech_plug_detect_irq(int irq, void *data)
 	int r = IRQ_HANDLED;
 	struct wcd_mbhc *mbhc = data;
 
-	pr_info("%s: enter\n", __func__);
+	pr_debug("%s: enter\n", __func__);
 	if (mbhc == NULL) {
 		pr_err("%s: NULL irq data\n", __func__);
 		return IRQ_NONE;
@@ -1248,7 +1256,7 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 	if (mbhc->buttons_pressed & WCD_MBHC_JACK_BUTTON_MASK) {
 		ret = wcd_cancel_btn_work(mbhc);
 		if (ret == 0) {
-			pr_info("%s: Reporting long button release event\n",
+			pr_debug("%s: Reporting long button release event\n",
 				 __func__);
 			wcd_mbhc_jack_report(mbhc, &mbhc->button_jack,
 					0, mbhc->buttons_pressed);
@@ -1257,8 +1265,8 @@ static irqreturn_t wcd_mbhc_release_handler(int irq, void *data)
 				pr_debug("%s: Switch irq kicked in, ignore\n",
 					__func__);
 			} else {
-				pr_info("%s: Reporting btn press %x\n",
-					 __func__, mbhc->buttons_pressed);
+				pr_debug("%s: Reporting btn press\n",
+					 __func__);
 				wcd_mbhc_jack_report(mbhc,
 						     &mbhc->button_jack,
 						     mbhc->buttons_pressed,

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/of.h>
@@ -1030,53 +1029,6 @@ static int cam_soc_util_get_dt_gpio_req_tbl(struct device_node *of_node,
 			gconf->cam_gpio_req_tbl[i].label);
 	}
 
-	if (!of_get_property(of_node, "gpio-req-tbl-delay", &count)) {
-		CAM_DBG(CAM_UTIL, "no gpio-req-tbl-delay");
-		kfree(val_array);
-		return rc;
-	}
-
-	count /= sizeof(uint32_t);
-	if (!count) {
-		CAM_ERR(CAM_UTIL, "Invalid gpio count for gpio-req-tbl-delay");
-		kfree(val_array);
-		return rc;
-	}
-
-	if (count != gconf->cam_gpio_req_tbl_size) {
-		CAM_ERR(CAM_UTIL,
-			"Invalid number of gpio-req-tbl-delay entries: %d",
-			count);
-		goto free_val_array;
-	}
-
-	gconf->gpio_delay_tbl = kcalloc(count, sizeof(uint32_t),
-		GFP_KERNEL);
-	if (!gconf->gpio_delay_tbl) {
-		CAM_ERR(CAM_UTIL,
-			"Failed to allocate memory for gpio_delay_tbl");
-		rc = -ENOMEM;
-		goto free_val_array;
-	}
-
-	gconf->gpio_delay_tbl_size = count;
-
-	rc = of_property_read_u32_array(of_node, "gpio-req-tbl-delay",
-		val_array, count);
-	if (rc) {
-		CAM_ERR(CAM_UTIL, "Failed to read gpio-req-tbl-delay entry");
-		kfree(gconf->gpio_delay_tbl);
-		gconf->gpio_delay_tbl_size = 0;
-		kfree(val_array);
-		return rc;
-	}
-
-	for (i = 0; i < count; i++) {
-		gconf->gpio_delay_tbl[i] = val_array[i];
-		CAM_DBG(CAM_UTIL, "gpio_delay_tbl[%d] = %ld", i,
-			gconf->gpio_delay_tbl[i]);
-	}
-
 	kfree(val_array);
 
 	return rc;
@@ -1327,6 +1279,10 @@ int cam_soc_util_get_dt_properties(struct cam_hw_soc_info *soc_info)
 			return rc;
 		}
 	}
+
+	rc = of_property_read_string(of_node, "label", &soc_info->label_name);
+	if (rc)
+		CAM_DBG(CAM_UTIL, "Label is not available in the node: %d", rc);
 
 	if (soc_info->num_mem_block > 0) {
 		rc = of_property_read_u32_array(of_node, "reg-cam-base",
@@ -2065,7 +2021,8 @@ static int cam_soc_util_dump_dmi_reg_range_user_buf(
 		CAM_ERR(CAM_UTIL,
 			"Invalid input args soc_info: %pK, dump_args: %pK",
 			soc_info, dump_args);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto end;
 	}
 
 	if (dmi_read->num_pre_writes > CAM_REG_DUMP_DMI_CONFIG_MAX ||
@@ -2073,14 +2030,15 @@ static int cam_soc_util_dump_dmi_reg_range_user_buf(
 		CAM_ERR(CAM_UTIL,
 			"Invalid number of requested writes, pre: %d post: %d",
 			dmi_read->num_pre_writes, dmi_read->num_post_writes);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto end;
 	}
 
 	rc = cam_mem_get_cpu_buf(dump_args->buf_handle, &cpu_addr, &buf_len);
 	if (rc) {
 		CAM_ERR(CAM_UTIL, "Invalid handle %u rc %d",
 			dump_args->buf_handle, rc);
-		return -EINVAL;
+		goto end;
 	}
 
 	if (buf_len <= dump_args->offset) {
@@ -2166,8 +2124,6 @@ static int cam_soc_util_dump_dmi_reg_range_user_buf(
 		sizeof(struct cam_hw_soc_dump_header);
 
 end:
-	if (dump_args)
-		cam_mem_put_cpu_buf(dump_args->buf_handle);
 	return rc;
 }
 
@@ -2192,13 +2148,13 @@ static int cam_soc_util_dump_cont_reg_range_user_buf(
 			"Invalid input args soc_info: %pK, dump_out_buffer: %pK reg_read: %pK",
 			soc_info, dump_args, reg_read);
 		rc = -EINVAL;
-		return rc;
+		goto end;
 	}
 	rc = cam_mem_get_cpu_buf(dump_args->buf_handle, &cpu_addr, &buf_len);
 	if (rc) {
 		CAM_ERR(CAM_UTIL, "Invalid handle %u rc %d",
 			dump_args->buf_handle, rc);
-		return rc;
+		goto end;
 	}
 	if (buf_len <= dump_args->offset) {
 		CAM_WARN(CAM_UTIL, "Dump offset overshoot %zu %zu",
@@ -2248,8 +2204,6 @@ static int cam_soc_util_dump_cont_reg_range_user_buf(
 	dump_args->offset +=  hdr->size +
 		sizeof(struct cam_hw_soc_dump_header);
 end:
-	if (dump_args)
-		cam_mem_put_cpu_buf(dump_args->buf_handle);
 	return rc;
 }
 
@@ -2341,8 +2295,6 @@ int cam_soc_util_reg_dump_to_cmd_buf(void *ctx,
 	if (rc || !cpu_addr || (buf_size == 0)) {
 		CAM_ERR(CAM_UTIL, "Failed in Get cpu addr, rc=%d, cpu_addr=%pK",
 			rc, (void *)cpu_addr);
-		if (rc)
-			return rc;
 		goto end;
 	}
 
@@ -2544,6 +2496,5 @@ int cam_soc_util_reg_dump_to_cmd_buf(void *ctx,
 	}
 
 end:
-	cam_mem_put_cpu_buf(cmd_desc->mem_handle);
 	return rc;
 }
