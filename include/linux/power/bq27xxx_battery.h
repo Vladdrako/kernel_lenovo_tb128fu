@@ -49,6 +49,7 @@ struct bq27xxx_reg_cache {
 	int capacity;
 	int energy;
 	int flags;
+	int power_avg;
 	int health;
 };
 
@@ -70,6 +71,8 @@ struct bq27xxx_device_info {
 	struct list_head list;
 	struct mutex lock;
 	u8 *regs;
+	const char *batt_id_string;
+	int battery_exist;
 };
 
 void bq27xxx_battery_update(struct bq27xxx_device_info *di);
