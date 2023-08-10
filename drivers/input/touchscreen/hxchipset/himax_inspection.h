@@ -21,17 +21,19 @@
 /*#define HX_INSP_LP_TEST*/
 /*#define HX_ACT_IDLE_TEST*/
 
-#define HX_RSLT_OUT_PATH "/sdcard/"
-#define HX_RSLT_OUT_FILE "hx_test_result.txt"
+/*#define HX_INSPT_DBG*/
+
+#define HX_RSLT_OUT_PATH "/data/vendor/fac_sources/"	//Bug697279 -,shenwenbin.wt,MOD,20211021,modify save test data
+#define HX_RSLT_OUT_FILE "hx_test_result"	//bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
 #define PI(x...) pr_cont(x)
 #define HX_SZ_ICID 60
 
-#if defined(HX_ESD_RECOVERY)
-extern u8 HX_ESD_RESET_ACTIVATE;
+#if defined(HX_EXCP_RECOVERY)
+extern u8 HX_EXCP_RESET_ACTIVATE;
 #endif
 
-#define BS_RAWDATA     10
-#define BS_NOISE       10
+#define BS_RAWDATA     8
+#define BS_NOISE       8
 #define BS_OPENSHORT   0
 #define	BS_LPWUG       1
 #define	BS_LP_dile  1
@@ -46,7 +48,7 @@ extern u8 HX_ESD_RESET_ACTIVATE;
 #define SKIP_DUMMY_END      28
 
 
-#define	NOISEFRAME                      (BS_NOISE+1)
+#define	NOISEFRAME                      60
 #define NORMAL_IDLE_RAWDATA_NOISEFRAME  10
 #define LP_RAWDATAFRAME              1
 #define LP_NOISEFRAME                1
@@ -81,8 +83,6 @@ extern u8 HX_ESD_RESET_ACTIVATE;
 
 #define PWD_LP_IDLE_START    0x50
 #define PWD_LP_IDLE_END      0x60
-
-#define PWD_TURN_ON_MPAP_OVL    0x107380
 
 /*Himax DataType*/
 #define DATA_SORTING            0x0A
@@ -122,6 +122,7 @@ extern char *g_himax_inspection_mode[];
 /*Inspection register*/
 #define addr_normal_noise_thx   0x1000708C
 #define addr_lpwug_noise_thx    0x10007090
+#define addr_noise_scale        0x10007094
 #define addr_recal_thx          0x10007090
 #define addr_palm_num           0x100070A8
 #define addr_weight_sup         0x100072C8
@@ -132,35 +133,35 @@ extern char *g_himax_inspection_mode[];
 #define addr_skip_frame         0x100070F4
 #define addr_neg_noise_sup      0x10007FD8
 #define data_neg_noise          0x7F0C0000
-#define addr_ctrl_mpap_ovl      0x100073EC
 
 /*Need to map *g_himax_inspection_mode[]*/
 enum THP_INSPECTION_ENUM {
 	HX_OPEN,
 	HX_MICRO_OPEN,
 	HX_SHORT,
-	HX_RAWDATA,
-	HX_BPN_RAWDATA,
 	HX_SC,
 	HX_WT_NOISE,
 	HX_ABS_NOISE,
+	HX_RAWDATA,
+	HX_BPN_RAWDATA,
 	HX_SORTING,
 
 	HX_GAPTEST_RAW,
 	/*HX_GAPTEST_RAW_X,*/
 	/*HX_GAPTEST_RAW_Y,*/
 
+	HX_ACT_IDLE_NOISE,
 	HX_ACT_IDLE_RAWDATA,
 	HX_ACT_IDLE_BPN_RAWDATA,
-	HX_ACT_IDLE_NOISE,
 /*LPWUG test must put after Normal test*/
-	HX_LP_RAWDATA,
-	HX_LP_BPN_RAWDATA,
 	HX_LP_WT_NOISE,
 	HX_LP_ABS_NOISE,
+	HX_LP_RAWDATA,
+	HX_LP_BPN_RAWDATA,
+
+	HX_LP_IDLE_NOISE,
 	HX_LP_IDLE_RAWDATA,
 	HX_LP_IDLE_BPN_RAWDATA,
-	HX_LP_IDLE_NOISE,
 
 	HX_BACK_NORMAL,/*Must put in the end*/
 };
@@ -214,6 +215,21 @@ enum HX_CRITERIA_ENUM {
 	IDX_LP_IDLE_RAWDATA_MAX,
 	IDX_LP_IDLE_RAW_BPN_MIN,
 	IDX_LP_IDLE_RAW_BPN_MAX,
+};
+
+enum HX_INSPT_SETTING_IDX {
+	RAW_BS_FRAME = 0,
+	NOISE_BS_FRAME,
+	ACT_IDLE_BS_FRAME,
+	LP_BS_FRAME,
+	LP_IDLE_BS_FRAME,
+
+	NFRAME,
+	IDLE_NFRAME,
+	LP_RAW_NFRAME,
+	LP_NOISE_NFRAME,
+	LP_IDLE_RAW_NFRAME,
+	LP_IDLE_NOISE_NFRAME,
 };
 
 #define ERR_SFT 4
@@ -287,6 +303,9 @@ enum HX_INSP_ERR_ENUM {
 	HX_EACT_IDLE_BPNRAW = 1 << (HX_ACT_IDLE_BPN_RAWDATA + ERR_SFT),
 	HX_ELP_BPNRAW = 1 << (HX_LP_BPN_RAWDATA + ERR_SFT),
 	HX_ELP_IDLE_BPNRAW = 1 << (HX_LP_IDLE_BPN_RAWDATA + ERR_SFT),
+
+	/* FAIL */
+	HX_INSP_FAIL	= -1,
 };
 
 extern void himax_inspect_data_clear(void);

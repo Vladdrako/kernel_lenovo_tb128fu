@@ -18,27 +18,28 @@
 
 #include "himax_platform.h"
 #include "himax_common.h"
+#include "himax_debug_info.h"
 
 
-#if defined(HX_ESD_RECOVERY)
-extern u8 HX_ESD_RESET_ACTIVATE;
+#define HX_RSLT_OUT_PATH "/data/"
+#define HX_RSLT_OUT_FILE "hx_dump_result.txt"
+
+#if defined(HX_EXCP_RECOVERY)
+extern u8 HX_EXCP_RESET_ACTIVATE;
 extern int hx_EB_event_flag;
 extern int hx_EC_event_flag;
+#if defined(HW_ED_EXCP_EVENT)
+extern int hx_EE_event_flag;
+#else
 extern int hx_ED_event_flag;
 #endif
-
-#define HIMAX_PROC_VENDOR_FILE "vendor"
-extern struct proc_dir_entry *himax_proc_vendor_file;
+#endif
 
 #define HIMAX_PROC_PEN_POS_FILE "pen_pos"
 
 int himax_touch_proc_init(void);
 void himax_touch_proc_deinit(void);
 extern int himax_int_en_set(void);
-
-extern uint8_t byte_length;
-extern uint8_t register_command[4];
-extern uint8_t cfg_flag;
 
 #define HIMAX_PROC_DIAG_FOLDER "diag"
 struct proc_dir_entry *himax_proc_diag_dir;
@@ -60,7 +61,6 @@ void setMutualBuffer_2(uint8_t x_num, uint8_t y_num);
 extern int32_t *diag_mutual;
 extern int32_t *diag_mutual_new;
 extern int32_t *diag_mutual_old;
-extern uint8_t diag_max_cnt;
 extern uint8_t hx_state_info[2];
 extern uint8_t diag_coor[128];
 extern int32_t *diag_self;
@@ -89,7 +89,6 @@ extern uint8_t mutual_set_flag;
 
 #define HIMAX_PROC_FLASH_DUMP_FILE	"flash_dump"
 extern struct proc_dir_entry *himax_proc_flash_dump_file;
-extern int Flash_Size;
 extern uint8_t *flash_buffer;
 extern uint8_t g_flash_cmd;
 extern uint8_t g_flash_progress;
@@ -101,6 +100,19 @@ enum flash_dump_prog {
 	ONGOING,
 	FINISHED,
 };
+
+#define HIMAX_PROC_PANEL_DIRECTION_FILE	"panel_direction"
+extern struct proc_dir_entry *himax_proc_panel_direction_file;
+
+//+OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+#define HIMAX_PROC_GAME_MODE_FILE	"game_mode"
+extern struct proc_dir_entry *himax_proc_game_mode_file;
+//-OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+
+//+OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
+#define HIMAX_PROC_PREVENT_NOTCH_FILE	"edge_grid_zone"
+extern struct proc_dir_entry *himax_proc_prevent_notch_file;
+//-OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
 
 extern uint32_t **raw_data_array;
 extern uint8_t X_NUM4;
@@ -127,10 +139,6 @@ extern bool Is_2T2R;
 extern void himax_ic_reset(uint8_t loadconfig, uint8_t int_off);
 #endif
 
-#if defined(HX_ZERO_FLASH)
-extern char *i_CTPM_firmware_name;
-#endif
-
 extern uint8_t HX_PROC_SEND_FLAG;
 extern struct himax_target_report_data *g_target_report_data;
 extern struct himax_report_data *hx_touch_data;
@@ -138,27 +146,87 @@ extern int g_ts_dbg;
 
 /* Moved from debug.c end */
 #define BUF_SIZE 1024
-#define CMD_NUM 15
-char *dbg_cmd_str[] = {
-	"crc_test",
-	"fw_debug",
-	"attn",
-	"layout",
-	"dd_debug",
-	"esd_cnt",
-	"senseonoff",
-	"debug_level",
-	"guest_info",
-	"int_en",
-	"register",
-	"reset",
-	"diag_arr",
-	"diag",
-	NULL
+#define CMD_NUM 24
+#define CMD_START_IDX	1
+char *cmd_crc_test_str[] = {"crc_test", NULL};
+char *cmd_fw_debug_str[] = {"fw_debug", NULL};
+char *cmd_attn_str[] = {"attn", NULL};
+char *cmd_layout_str[] = {"layout", NULL};
+char *cmd_excp_cnt_str[] = {"excp_cnt", NULL};
+char *cmd_senseonoff_str[] = {"senseonoff", "SenseOnOff", NULL};
+char *cmd_dbg_lvl_str[] = {"debug_level", "dbg_lvl", NULL};
+char *cmd_guest_info_str[] = {"guest_info", NULL};
+char *cmd_int_en_str[] = {"int_en", NULL};
+char *cmd_irq_info_str[] = {"int", "irq_info", NULL};
+char *cmd_register_str[] = {"register", NULL};
+char *cmd_reset_str[] = {"reset", "rst", NULL};
+char *cmd_diag_arr_str[] = {"diag_arr", NULL};
+char *cmd_diag_str[] = {"diag", NULL};
+char *cmd_irq_dbg_str[] = {"irq_dbg", NULL};
+char *cmd_bus_str[] = {"bus", "i2c", "spi", NULL};
+char *cmd_update_str[] = {"update", "t", NULL};
+char *cmd_version_str[] = {"version", "v", "V", NULL};
+char *cmd_dbg_info_str[] = {"d", "info", NULL};
+char *cmd_list_str[] = {"list", "l", NULL};
+char *cmd_help_str[] = {"help", "h", "?", "-?", NULL};
+char **dbg_cmd_str[] = {
+	NULL,
+	cmd_crc_test_str,
+	cmd_fw_debug_str,
+	cmd_attn_str,
+	cmd_layout_str,
+	cmd_excp_cnt_str,
+	cmd_senseonoff_str,
+	cmd_dbg_lvl_str,
+	cmd_guest_info_str,
+	cmd_int_en_str,
+	cmd_irq_info_str,
+	cmd_register_str,
+	cmd_reset_str,
+	cmd_diag_arr_str,
+	cmd_diag_str,
+	cmd_irq_dbg_str,
+	cmd_bus_str,
+	cmd_update_str,
+	cmd_version_str,
+	cmd_dbg_info_str,
+	cmd_list_str,
+	cmd_help_str,
+	NULL,
 };
 
 int dbg_cmd_flag;
 char *dbg_cmd_par;
-ssize_t (*dbg_func_ptr_r[CMD_NUM])(char *buf, size_t len);
+int (*dbg_func_ptr_r[CMD_NUM])(struct seq_file *m);
 ssize_t (*dbg_func_ptr_w[CMD_NUM])(char *buf, size_t len);
+
+#define STR_TO_UL_ERR  "String to ul is fail in cnt = %d, buf_tmp2 = %s\n"
+#define PRT_LOG "Finger %d=> X:%d, Y:%d W:%d, Z:%d, F:%d, Int_Delay_Cnt:%d\n"
+#define RAW_DOWN_STATUS "status: Raw:F:%02d Down, X:%d, Y:%d, W:%d\n"
+#define RAW_UP_STATUS "status: Raw:F:%02d Up, X:%d, Y:%d\n"
+#define PRT_OK_LOG "%s: change mode 0x%4X. str_pw = %2X, end_pw = %2X\n"
+#define PRT_FAIL_LOG "%s: change mode failed. str_pw = %2X, end_pw = %2X\n"
+
+#define __CREATE_OREAD_NODE_HX(name)\
+static int himax_##name##_open(struct inode *inode, struct file *file)\
+{return single_open(file, himax_##name##_show, NULL); } \
+static const struct file_operations himax_##name##_ops = {\
+	.owner = THIS_MODULE,\
+	.open = himax_##name##_open,\
+	.read = seq_read,\
+}
+
+
+#define __CREATE_RW_NODE_HX(name)\
+static int himax_##name##_open(struct inode *inode, struct file *file)\
+{return single_open(file, himax_##name##_show, NULL); } \
+static const struct file_operations himax_##name##_ops = {\
+	.owner = THIS_MODULE,\
+	.open = himax_##name##_open,\
+	.write = himax_##name##_store,\
+	.read = seq_read,\
+	.llseek = seq_lseek,\
+	.release = single_release,\
+}
+
 #endif

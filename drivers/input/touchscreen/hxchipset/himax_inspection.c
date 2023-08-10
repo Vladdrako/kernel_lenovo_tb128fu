@@ -13,6 +13,10 @@
  *  GNU General Public License for more details.
  */
 
+//+bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
+#include <linux/time.h>
+#include <linux/rtc.h>
+//-bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
 #include "himax_inspection.h"
 
 static int g_gap_vertical_partial = 3;
@@ -34,9 +38,10 @@ char *g_rslt_data;
 bool file_w_flag;
 static char g_file_path[256];
 static char g_rslt_log[256];
-static char g_start_log[256];
+static char g_start_log[512];
 #define FAIL_IN_INDEX "%s: %s FAIL in index %d\n"
-
+#define FAIL_IN_INDEX_CRTRA \
+	"%s: %s FAIL in index %d,max=%d, min=%d, RAW=%d\n"
 char *g_hx_head_str[] = {
 	"TP_Info",
 	"Project_Info",
@@ -50,27 +55,28 @@ char *g_himax_inspection_mode[] = {
 	"HIMAX_OPEN",
 	"HIMAX_MICRO_OPEN",
 	"HIMAX_SHORT",
-	"HIMAX_RAWDATA",
-	"HIMAX_BPN_RAWDATA",
 	"HIMAX_SC",
 	"HIMAX_WEIGHT_NOISE",
 	"HIMAX_ABS_NOISE",
+	"HIMAX_RAWDATA",
+	"HIMAX_BPN_RAWDATA",
 	"HIMAX_SORTING",
 	"HIMAX_GAPTEST_RAW",
 	/*"HIMAX_GAPTEST_RAW_X",*/
 	/*"HIMAX_GAPTEST_RAW_Y",*/
 
+	"HIMAX_ACT_IDLE_NOISE",
 	"HIMAX_ACT_IDLE_RAWDATA",
 	"HIMAX_ACT_IDLE_BPN_RAWDATA",
-	"HIMAX_ACT_IDLE_NOISE",
 
-	"HIMAX_LPWUG_RAWDATA",
-	"HIMAX_LPWUG_BPN_RAWDATA",
 	"HIMAX_LPWUG_WEIGHT_NOISE",
 	"HIMAX_LPWUG_ABS_NOISE",
+	"HIMAX_LPWUG_RAWDATA",
+	"HIMAX_LPWUG_BPN_RAWDATA",
+
+	"HIMAX_LPWUG_IDLE_NOISE",
 	"HIMAX_LPWUG_IDLE_RAWDATA",
 	"HIMAX_LPWUG_IDLE_BPN_RAWDATA",
-	"HIMAX_LPWUG_IDLE_NOISE",
 
 	"HIMAX_BACK_NORMAL",
 	NULL
@@ -128,6 +134,24 @@ char *g_hx_inspt_crtra_name[] = {
 	NULL
 };
 
+/* for other setting */
+char *g_hx_inspt_setting_name[] = {
+	"RAW_BS_FRAME",
+	"NOISE_BS_FRAME",
+	"ACT_IDLE_BS_FRAME",
+	"LP_BS_FRAME",
+	"LP_IDLE_BS_FRAME",
+
+	"NORMAL_N_FRAME",
+	"IDLE_N_FRAME",
+	"LP_RAW_N_FRAME",
+	"LP_NOISE_N_FRAME",
+	"LP_IDLE_RAW_N_FRAME",
+	"LP_IDLE_NOISE_N_FRAME",
+	NULL
+};
+
+int *g_hx_inspt_setting_val;
 
 void (*fp_himax_self_test_init)(void) = himax_inspection_init;
 
@@ -146,21 +170,21 @@ static void himax_press_powerkey(void)
 }
 
 
-static uint8_t NOISEMAX;
-static uint8_t g_recal_thx;
+static uint16_t NOISEMAX;
+static uint16_t g_recal_thx;
 
 static int arraydata_max1, arraydata_max2, arraydata_max3;
 static int arraydata_min1, arraydata_min2, arraydata_min3;
 
-void himax_get_arraydata_edge(uint32_t *RAW)
+void himax_get_arraydata_edge(int *RAW)
 {
 	int temp, i, j;
 	int len = ic_data->HX_RX_NUM * ic_data->HX_TX_NUM;
-//	uint32_t ArrayData[len];
-	uint32_t *ArrayData = NULL;
-	ArrayData = kcalloc(len, sizeof(uint32_t), GFP_KERNEL);
+	int *ArrayData;
+
+	ArrayData = kcalloc(len, sizeof(int), GFP_KERNEL);
 	if (ArrayData == NULL) {
-		E("%s, Failed to allocate memory\n", __func__);
+		E("%s: allocate ArrayData failed\n", __func__);
 		return;
 	}
 
@@ -182,10 +206,10 @@ void himax_get_arraydata_edge(uint32_t *RAW)
 	arraydata_max1 = ArrayData[len-3];
 	arraydata_max2 = ArrayData[len-2];
 	arraydata_max3 = ArrayData[len-1];
-	kfree(ArrayData);
+
 }
 
-static int hx_test_data_get(uint32_t RAW[], char *start_log, char *result,
+static int hx_test_data_get(int RAW[], char *start_log, char *result,
 			 int now_item)
 {
 	uint32_t i;
@@ -242,7 +266,7 @@ static int himax_switch_mode_inspection(int mode)
 	/*Stop Handshaking*/
 	himax_parse_assign_cmd(sram_adr_rawdata_addr, tmp_addr,
 			sizeof(tmp_addr));
-	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
+	g_core_fp.fp_register_write(tmp_addr, tmp_data, 4);
 
 	/*Swtich Mode*/
 	switch (mode) {
@@ -320,37 +344,11 @@ static int himax_switch_mode_inspection(int mode)
 
 }
 
-static uint32_t himax_get_rawdata(uint32_t RAW[], uint32_t datalen)
+static void himax_raw_data_dbg(int RAW[])
 {
-	uint8_t *tmp_rawdata;
-	bool get_raw_rlst;
-	uint8_t retry = 0;
 	uint32_t i = 0;
 	uint32_t j = 0;
 	uint32_t index = 0;
-	uint32_t Min_DATA = 0xFFFFFFFF;
-	uint32_t Max_DATA = 0x00000000;
-
-	/* We use two bytes to combine a value of rawdata.*/
-	tmp_rawdata = kzalloc(sizeof(uint8_t) * (datalen * 2), GFP_KERNEL);
-	if (tmp_rawdata == NULL) {
-		E("%s: Memory allocation falied!\n", __func__);
-		return HX_INSP_MEMALLCTFAIL;
-	}
-
-	while (retry < 200) {
-		get_raw_rlst = g_core_fp.fp_get_DSRAM_data(tmp_rawdata, false);
-		if (get_raw_rlst)
-			break;
-		retry++;
-	}
-
-	if (retry >= 200)
-		goto DIRECT_END;
-
-	/* Copy Data*/
-	for (i = 0; i < ic_data->HX_TX_NUM*ic_data->HX_RX_NUM; i++)
-		RAW[i] = tmp_rawdata[(i * 2) + 1] * 256 + tmp_rawdata[(i * 2)];
 
 	for (j = 0; j < ic_data->HX_RX_NUM; j++) {
 		if (j == 0)
@@ -364,17 +362,77 @@ static uint32_t himax_get_rawdata(uint32_t RAW[], uint32_t datalen)
 		PI("TX%2d", i + 1);
 		for (j = 0; j < ic_data->HX_RX_NUM; j++) {
 			PI("%5d ", RAW[index]);
-			if (RAW[index] > Max_DATA)
-				Max_DATA = RAW[index];
-
-			if (RAW[index] < Min_DATA)
-				Min_DATA = RAW[index];
-
 			index++;
 		}
 		PI("\n");
 	}
+
+	for (i = 0; i < ic_data->HX_RX_NUM; i++) {
+		if (i == 0)
+			PI("RX: %2d", RAW[index]);
+		else
+			PI(", %2d", RAW[index]);
+		index++;
+	}
+	PI("\n");
+
+	for (i = 0; i < ic_data->HX_TX_NUM; i++) {
+		if (i == 0)
+			PI("TX: %2d", RAW[index]);
+		else
+			PI(", %2d", RAW[index]);
+		index++;
+	}
+
+}
+
+static uint32_t himax_get_rawdata(int RAW[], uint32_t len, uint8_t checktype)
+{
+	uint8_t *tmp_rawdata;
+	bool get_raw_rlst;
+	uint32_t i = 0;
+	int Min_DATA = 99999;
+	int Max_DATA = -99999;
+
+	/* We use two bytes to combine a value of rawdata.*/
+	tmp_rawdata = kzalloc(sizeof(uint8_t) * (len * 2), GFP_KERNEL);
+	if (tmp_rawdata == NULL) {
+		E("%s: Memory allocation falied!\n", __func__);
+		return HX_INSP_MEMALLCTFAIL;
+	}
+
+	get_raw_rlst = g_core_fp.fp_get_DSRAM_data(tmp_rawdata, false);
+	if (!get_raw_rlst)
+		goto DIRECT_END;
+
+	/* Copy Data*/
+	for (i = 0; i < len; i++) {
+		if (checktype == HX_WT_NOISE ||
+			checktype == HX_ABS_NOISE ||
+			checktype == HX_ACT_IDLE_NOISE ||
+			checktype == HX_LP_WT_NOISE ||
+			checktype == HX_LP_ABS_NOISE ||
+			checktype == HX_LP_IDLE_NOISE)
+			RAW[i] = ((int8_t)tmp_rawdata[(i * 2) + 1]<<8) +
+				tmp_rawdata[(i * 2)];
+		else
+			RAW[i] = tmp_rawdata[(i * 2) + 1]<<8 |
+				tmp_rawdata[(i * 2)];
+
+		if (i < (len - ic_data->HX_RX_NUM - ic_data->HX_TX_NUM)) {
+			if (i == 0)
+				Min_DATA = Max_DATA = RAW[0];
+			else if (RAW[i] > Max_DATA)
+				Max_DATA = RAW[i];
+			else if (RAW[i] < Min_DATA)
+				Min_DATA = RAW[i];
+		}
+	}
 	I("Max = %5d, Min = %5d\n", Max_DATA, Min_DATA);
+
+	if (private_ts->debug_log_level & BIT(4))
+		himax_raw_data_dbg(RAW);
+
 DIRECT_END:
 	kfree(tmp_rawdata);
 
@@ -389,6 +447,11 @@ static void himax_switch_data_type(uint8_t checktype)
 {
 	uint8_t datatype = 0x00;
 
+	if (private_ts->debug_log_level & BIT(4)) {
+		I("%s,Expected type[%d]=%s"
+			, __func__
+			, checktype, g_himax_inspection_mode[checktype]);
+	}
 	switch (checktype) {
 	case HX_SORTING:
 		datatype = DATA_SORTING;
@@ -454,39 +517,58 @@ static void himax_bank_search_set(uint16_t Nframe, uint8_t checktype)
 
 	/*skip frame 0x100070F4*/
 	himax_parse_assign_cmd(addr_skip_frame, tmp_addr, sizeof(tmp_addr));
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
 
 	switch (checktype) {
 	case HX_ACT_IDLE_RAWDATA:
 	case HX_ACT_IDLE_BPN_RAWDATA:
 	case HX_ACT_IDLE_NOISE:
-		tmp_data[0] = BS_ACT_IDLE;
+		if (g_hx_inspt_setting_val[ACT_IDLE_BS_FRAME] > 0)
+			tmp_data[0] = g_hx_inspt_setting_val[ACT_IDLE_BS_FRAME];
+		else
+			tmp_data[0] = BS_ACT_IDLE;
 		break;
 	case HX_LP_RAWDATA:
 	case HX_LP_BPN_RAWDATA:
 	case HX_LP_ABS_NOISE:
 	case HX_LP_WT_NOISE:
-		tmp_data[0] = BS_LPWUG;
+		if (g_hx_inspt_setting_val[LP_BS_FRAME] > 0)
+			tmp_data[0] = g_hx_inspt_setting_val[LP_BS_FRAME];
+		else
+			tmp_data[0] = BS_LPWUG;
 		break;
 	case HX_LP_IDLE_RAWDATA:
 	case HX_LP_IDLE_BPN_RAWDATA:
 	case HX_LP_IDLE_NOISE:
-		tmp_data[0] = BS_LP_dile;
+		if (g_hx_inspt_setting_val[LP_IDLE_BS_FRAME] > 0)
+			tmp_data[0] = g_hx_inspt_setting_val[LP_IDLE_BS_FRAME];
+		else
+			tmp_data[0] = BS_LP_dile;
 		break;
 	case HX_RAWDATA:
 	case HX_BPN_RAWDATA:
 	case HX_SC:
-		tmp_data[0] = BS_RAWDATA;
+		if (g_hx_inspt_setting_val[RAW_BS_FRAME] > 0)
+			tmp_data[0] = g_hx_inspt_setting_val[RAW_BS_FRAME];
+		else
+			tmp_data[0] = BS_RAWDATA;
 		break;
 	case HX_WT_NOISE:
 	case HX_ABS_NOISE:
-		tmp_data[0] = BS_NOISE;
+		if (g_hx_inspt_setting_val[NOISE_BS_FRAME] > 0)
+			tmp_data[0] = g_hx_inspt_setting_val[NOISE_BS_FRAME];
+		else
+			tmp_data[0] = BS_NOISE;
 		break;
 	default:
 		tmp_data[0] = BS_OPENSHORT;
 		break;
 	}
-	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
+	if (private_ts->debug_log_level & BIT(4)) {
+		I("%s,Now BankSearch Value=%d\n",
+			__func__, tmp_data[0]);
+	}
+	g_core_fp.fp_register_write(tmp_addr, tmp_data, 4);
 }
 
 static void himax_neg_noise_sup(uint8_t *data)
@@ -497,7 +579,7 @@ static void himax_neg_noise_sup(uint8_t *data)
 	/*0x10007FD8 Check support negative value or not */
 	himax_parse_assign_cmd(addr_neg_noise_sup, tmp_addr,
 		sizeof(tmp_addr));
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
 
 	if ((tmp_data[3] & 0x04) == 0x04) {
 		himax_parse_assign_cmd(data_neg_noise, tmp_data,
@@ -520,21 +602,26 @@ static void himax_set_N_frame(uint16_t Nframe, uint8_t checktype)
 	tmp_data[3] = 0x00; tmp_data[2] = 0x00;
 	tmp_data[1] = (uint8_t)((Nframe & 0xFF00) >> 8);
 	tmp_data[0] = (uint8_t)(Nframe & 0x00FF);
-	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
+	g_core_fp.fp_register_write(tmp_addr, tmp_data, 4);
 
 	if (checktype == HX_WT_NOISE ||
 		checktype == HX_ABS_NOISE ||
 		checktype == HX_LP_WT_NOISE ||
 		checktype == HX_LP_ABS_NOISE)
 		himax_neg_noise_sup(tmp_data);
-
-	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
+	if (private_ts->debug_log_level & BIT(4)) {
+		I("%s,Now N frame Value=0x%02X%02X\n",
+			__func__, tmp_data[1], tmp_data[0]);
+	}
+	g_core_fp.fp_register_write(tmp_addr, tmp_data, 4);
 }
 
 static void himax_get_noise_base(uint8_t checktype)/*Normal Threshold*/
 {
 	uint8_t tmp_addr[4];
 	uint8_t tmp_data[4];
+	uint8_t tmp_addr2[4];
+	uint8_t tmp_data2[4];
 
 	switch (checktype) {
 	case HX_WT_NOISE:
@@ -548,16 +635,22 @@ static void himax_get_noise_base(uint8_t checktype)/*Normal Threshold*/
 	default:
 		I("%s Not support type\n", __func__);
 	}
+	himax_parse_assign_cmd(addr_noise_scale,
+			tmp_addr2, sizeof(tmp_addr2));
+	g_core_fp.fp_register_read(tmp_addr2, tmp_data2, 4);
+	tmp_data2[1] = tmp_data2[1]>>4;
+	if (tmp_data2[1] == 0)
+		tmp_data2[1] = 1;
 
 	/*normal : 0x1000708F, LPWUG:0x10007093*/
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-	NOISEMAX = tmp_data[3];
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+	NOISEMAX = tmp_data[3] * tmp_data2[1];
 
 	himax_parse_assign_cmd(addr_recal_thx,
 			tmp_addr, sizeof(tmp_addr));
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-	g_recal_thx = tmp_data[2];/*0x10007092*/
-	I("%s: NOISEMAX=%d, g_recal_thx = %d\n", __func__,
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+	g_recal_thx = tmp_data[2] * tmp_data2[1];/*0x10007092*/
+	I("%s: NOISEMAX = %d, g_recal_thx = %d\n", __func__,
 		NOISEMAX, g_recal_thx);
 }
 
@@ -569,7 +662,7 @@ static uint16_t himax_get_palm_num(void)/*Palm Number*/
 
 	himax_parse_assign_cmd(addr_palm_num,
 			tmp_addr, sizeof(tmp_addr));
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
 	palm_num = tmp_data[3];/*0x100070AB*/
 	I("%s: palm_num = %d ", __func__, palm_num);
 
@@ -587,8 +680,8 @@ static int himax_get_noise_weight_test(uint8_t checktype)
 			tmp_addr, sizeof(tmp_addr));
 
 	/*0x100072C8 weighting value*/
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-	if (tmp_data[3] != tmp_addr[1] || tmp_data[2] != tmp_addr[0])
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+	if (tmp_data[3] != 0x72 || tmp_data[2] != 0xC8)
 		return FW_NOT_READY;
 
 	value = (tmp_data[1] << 8) | tmp_data[0];
@@ -608,12 +701,14 @@ static int himax_get_noise_weight_test(uint8_t checktype)
 	}
 
 	/*Normal:0x1000709C, LPWUG:0x100070A0 weighting threshold*/
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
 	weight = tmp_data[0];
 
 	himax_parse_assign_cmd(addr_weight_b, tmp_addr, sizeof(tmp_addr));
-
-	g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+	tmp_data[1] = tmp_data[1]&0x0F;
+	if (tmp_data[1] == 0)
+		tmp_data[1] = 1;
 	weight = tmp_data[1] * weight;/*0x10007095 weighting threshold*/
 	I("%s: weight = %d ", __func__, weight);
 
@@ -625,6 +720,7 @@ static int himax_get_noise_weight_test(uint8_t checktype)
 
 static uint32_t himax_check_mode(uint8_t checktype)
 {
+	int ret = 0;
 	uint8_t tmp_data[4] = {0};
 	uint8_t wait_pwd[2] = {0};
 
@@ -685,12 +781,17 @@ static uint32_t himax_check_mode(uint8_t checktype)
 		break;
 	}
 
-	if (g_core_fp.fp_check_sorting_mode != NULL)
-		g_core_fp.fp_check_sorting_mode(tmp_data);
+	if (g_core_fp.fp_check_sorting_mode != NULL) {
+		ret = g_core_fp.fp_check_sorting_mode(tmp_data);
+		if (ret != NO_ERR)
+			return ret;
+	}
 
 	if ((wait_pwd[0] == tmp_data[0]) && (wait_pwd[1] == tmp_data[1])) {
-		I("Change to mode=%s\n", g_himax_inspection_mode[checktype]);
-		return 0;
+		I("%s,It had been changed to [%d]=%s\n",
+			__func__,
+			checktype, g_himax_inspection_mode[checktype]);
+		return NO_ERR;
 	} else {
 		return 1;
 	}
@@ -705,6 +806,9 @@ static uint32_t himax_wait_sorting_mode(uint8_t checktype)
 	uint8_t tmp_data[4] = {0};
 	uint8_t wait_pwd[2] = {0};
 	int count = 0;
+
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s:start!\n", __func__);
 
 	switch (checktype) {
 	case HX_SORTING:
@@ -760,106 +864,50 @@ static uint32_t himax_wait_sorting_mode(uint8_t checktype)
 		I("No Change Mode and now type=%d\n", checktype);
 		break;
 	}
-
+	I("%s:NowType[%d] = %s, Expected=0x%02X%02X\n",
+		__func__, checktype, g_himax_inspection_mode[checktype],
+		 wait_pwd[1], wait_pwd[0]);
 	do {
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:start check_sorting_mode!\n", __func__);
 		if (g_core_fp.fp_check_sorting_mode != NULL)
 			g_core_fp.fp_check_sorting_mode(tmp_data);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:end check_sorting_mode!\n", __func__);
 		if ((wait_pwd[0] == tmp_data[0]) &&
 			(wait_pwd[1] == tmp_data[1]))
 			return HX_INSP_OK;
+		if (private_ts->debug_log_level & BIT(4)) {
+			himax_parse_assign_cmd(fw_addr_chk_fw_status,
+					tmp_addr, sizeof(tmp_addr));
+			g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+			I(TEMP_LOG, __func__, "0x900000A8",
+				tmp_data[0], tmp_data[1],
+				tmp_data[2], tmp_data[3]);
 
-		himax_parse_assign_cmd(fw_addr_chk_fw_status,
-				tmp_addr, sizeof(tmp_addr));
-		g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-		I(TEMP_LOG, __func__, "0x900000A8",
-			tmp_data[0], tmp_data[1], tmp_data[2], tmp_data[3]);
+			himax_parse_assign_cmd(fw_addr_flag_reset_event,
+					tmp_addr, sizeof(tmp_addr));
+			g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+			I(TEMP_LOG, __func__, "0x900000E4",
+				tmp_data[0], tmp_data[1],
+				tmp_data[2], tmp_data[3]);
 
-		himax_parse_assign_cmd(fw_addr_flag_reset_event,
-				tmp_addr, sizeof(tmp_addr));
-		g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-		I(TEMP_LOG, __func__, "0x900000E4",
-			tmp_data[0], tmp_data[1], tmp_data[2], tmp_data[3]);
+			himax_parse_assign_cmd(fw_addr_fw_dbg_msg_addr,
+					tmp_addr, sizeof(tmp_addr));
+			g_core_fp.fp_register_read(tmp_addr, tmp_data, 4);
+			I(TEMP_LOG, __func__, "0x10007F40",
+				tmp_data[0], tmp_data[1],
+				tmp_data[2], tmp_data[3]);
 
-		himax_parse_assign_cmd(fw_addr_fw_dbg_msg_addr,
-				tmp_addr, sizeof(tmp_addr));
-		g_core_fp.fp_register_read(tmp_addr, 4, tmp_data, false);
-		I(TEMP_LOG, __func__, "0x10007F40",
-			tmp_data[0], tmp_data[1], tmp_data[2], tmp_data[3]);
-		I("Now retry %d times!\n", count++);
+			I("Now retry %d times!\n", count);
+		}
+		count++;
 		msleep(50);
 	} while (count < 50);
 
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s:end\n", __func__);
 	return HX_INSP_ESWITCHMODE;
-}
-
-static int hx_turn_on_mp_func(int on)
-{
-	int rslt = 0;
-	int retry = 3;
-	uint8_t tmp_addr[4] = {0};
-	uint8_t tmp_data[4] = {0};
-	uint8_t tmp_read[4] = {0};
-	/* char *tmp_chipname = private_ts->chip_name; */
-
-	himax_parse_assign_cmd(addr_ctrl_mpap_ovl, tmp_addr,
-		sizeof(tmp_addr));
-	if (on) {
-		I("%s : Turn on!\n", __func__);
-		if (strcmp(HX_83102D_SERIES_PWON, private_ts->chip_name) == 0) {
-			I("%s: need to enter Mp mode!\n", __func__);
-			himax_parse_assign_cmd(PWD_TURN_ON_MPAP_OVL,
-					tmp_data, sizeof(tmp_data));
-			do {
-				g_core_fp.fp_register_write(tmp_addr, 4,
-					tmp_data, 0);
-				usleep_range(10000, 10001);
-				g_core_fp.fp_register_read(tmp_addr, 4,
-					tmp_read, false);
-
-				I("%s:read2=0x%02X,read1=0x%02X,read0=0x%02X\n",
-					__func__,
-					tmp_read[2],
-					tmp_read[1],
-					tmp_read[0]);
-
-				retry--;
-			} while (((retry > 0)
-				&& (tmp_read[2] != tmp_data[2]
-				&& tmp_read[1] != tmp_data[1]
-				&& tmp_read[0] != tmp_data[0])));
-		} else {
-			I("%s:Nothing to be done!\n", __func__);
-		}
-	} else {
-		I("%s : Turn off!\n", __func__);
-		if (strcmp(HX_83102D_SERIES_PWON, private_ts->chip_name) == 0) {
-			I("%s: need to enter Mp mode!\n", __func__);
-
-			himax_parse_assign_cmd(ic_cmd_rst, tmp_data,
-				sizeof(tmp_data));
-			do {
-				g_core_fp.fp_register_write(tmp_addr, 4,
-					tmp_data, 0);
-				usleep_range(10000, 10001);
-				g_core_fp.fp_register_read(tmp_addr, 4,
-					tmp_read, false);
-
-				I("%s:read2=0x%02X,read1=0x%02X,read0=0x%02X\n",
-					__func__,
-					tmp_read[2],
-					tmp_read[1],
-					tmp_read[0]);
-
-				retry--;
-			} while ((retry > 0)
-				&& (tmp_read[2] != tmp_data[2]
-				&& tmp_read[1] != tmp_data[1]
-				&& tmp_read[0] != tmp_data[0]));
-		} else {
-			I("%s Nothing to be done!\n", __func__);
-		}
-	}
-	return rslt;
 }
 
 /* HX_GAP START gap test function */
@@ -900,7 +948,7 @@ static void himax_cal_gap_data_vertical(int start, int end_idx, int direct,
 	}
 }
 
-static int himax_gap_test_vertical_raw(int test_type, uint32_t *org_raw)
+static int himax_gap_test_vertical_raw(int test_type, int *org_raw)
 {
 	int i_partial = 0;
 	int tmp_start = 0;
@@ -1019,14 +1067,14 @@ static void himax_cal_gap_data_horizontal(int start, int end_idx, int direct,
 	}
 }
 
-static int himax_gap_test_honrizontal_raw(int test_type, uint32_t *raw)
+static int himax_gap_test_honrizontal_raw(int test_type, int *raw)
 {
 	int rx_num = ic_data->HX_RX_NUM;
 	int tx_num = ic_data->HX_TX_NUM;
 	int tmp_start = 0;
 	int tmp_end_idx = 0;
 	int i_partial = 0;
-	uint32_t *result_raw;
+	int *result_raw;
 	int i = 0;
 	int ret_val = NO_ERR;
 
@@ -1037,7 +1085,7 @@ static int himax_gap_test_honrizontal_raw(int test_type, uint32_t *raw)
 		return MEM_ALLOC_FAIL;
 	}
 
-	result_raw = kcalloc(tx_num*rx_num, sizeof(uint32_t), GFP_KERNEL);
+	result_raw = kcalloc(tx_num*rx_num, sizeof(int), GFP_KERNEL);
 	if (result_raw == NULL) {
 		E("%s: Memory allocation falied!\n", __func__);
 		ret_val = MEM_ALLOC_FAIL;
@@ -1096,7 +1144,7 @@ alloc_result_raw_failed:
 	return ret_val;
 }
 
-static uint32_t himax_data_campare(uint8_t checktype, uint32_t *RAW,
+static uint32_t himax_data_compare(uint8_t checktype, int *RAW,
 		int ret_val)
 {
 	int i = 0;
@@ -1306,16 +1354,37 @@ static uint32_t himax_data_campare(uint8_t checktype, uint32_t *RAW,
 		for (i = 0; i < block_num; i++) {
 			if ((int)RAW[i] > g_inspection_criteria[idx_max][i]
 			|| (int)RAW[i] < g_inspection_criteria[idx_min][i]) {
-				E(FAIL_IN_INDEX, __func__,
+				if (private_ts->debug_log_level & BIT(4)) {
+					E(FAIL_IN_INDEX_CRTRA, __func__,
+					g_himax_inspection_mode[checktype], i
+					, g_inspection_criteria[idx_max][i]
+					, g_inspection_criteria[idx_min][i]
+					, RAW[i]);
+					ret_val |= 1 << (checktype + ERR_SFT);
+				} else {
+					E(FAIL_IN_INDEX, __func__,
 					g_himax_inspection_mode[checktype], i);
-				ret_val |= 1 << (checktype + ERR_SFT);
+					ret_val |= 1 << (checktype + ERR_SFT);
+				}
 				break;
 			}
+#ifdef HX_INSPT_DBG
+			if ((private_ts->debug_log_level & BIT(4))) {
+				I("%s,type=%s, idx[%d]=%d\n",
+				__func__,
+				g_himax_inspection_mode[checktype],
+				i, RAW[i]);
+				I("%s, crteria,max=%d,min=%d\n",
+				__func__,
+				g_inspection_criteria[idx_max][i],
+				g_inspection_criteria[idx_min][i]);
+			}
+#endif
 		}
 		break;
-
 	default:
-		E("Wrong type=%d\n", checktype);
+		E("Wrong type[%d] = %s\n",
+		checktype, g_himax_inspection_mode[checktype]);
 		break;
 	}
 
@@ -1333,11 +1402,12 @@ static int himax_get_max_dc(void)
 
 	himax_parse_assign_cmd(addr_max_dc, tmp_addr, sizeof(tmp_addr));
 
-	g_core_fp.fp_register_read(tmp_addr, DATA_LEN_4, tmp_data, 0);
-	I("%s: tmp_data[0]=%x,tmp_data[1]=%x\n", __func__,
-			tmp_data[0], tmp_data[1]);
+	g_core_fp.fp_register_read(tmp_addr, tmp_data, DATA_LEN_4);
+	I("%s: tmp_data[0-3] = %02x%02x%02x%02x\n", __func__,
+		tmp_data[0], tmp_data[1], tmp_data[2], tmp_data[3]);
 
-	dc_max = tmp_data[1] << 8 | tmp_data[0];
+	dc_max = tmp_data[3]<<24 | tmp_data[2]<<16 |
+			tmp_data[1]<<8 | tmp_data[0];
 	I("%s: dc max = %d\n", __func__, dc_max);
 	return dc_max;
 }
@@ -1348,7 +1418,8 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 	uint32_t len = 0;
 	uint32_t *RAW = NULL;
 	int n_frame = 0;
-	uint32_t ret_val = HX_INSP_OK;
+	uint32_t ret_val = NO_ERR;
+	int check_sort_sts = NO_ERR;
 
 	/*uint16_t* pInspectGridData = &gInspectGridData[0];*/
 	/*uint16_t* pInspectNoiseData = &gInspectNoiseData[0];*/
@@ -1361,16 +1432,46 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 		return HX_INSP_MEMALLCTFAIL;
 	}
 
-	if (himax_check_mode(checktype)) {
+	if (checktype >= HX_LP_WT_NOISE) {
+		I("%s,Check status in Screen-Off test items\n", __func__);
+		if (private_ts->suspended) {
+			if (private_ts->debug_log_level & BIT(4))
+				I("%s, in Suspend!\n", __func__);
+		} else {
+			E("%s, Now is resume,Fail!\n", __func__);
+			ret_val = HX_INSP_FAIL;
+			goto fail_wait_sorting_mode;
+		}
+	} else {
+		I("%s,Check status in Screen-On test items\n", __func__);
+		if (private_ts->suspended) {
+			E("%s, Now is Suspend ,Fail!\n", __func__);
+			ret_val = HX_INSP_FAIL;
+			goto fail_wait_sorting_mode;
+		} else {
+			if (private_ts->debug_log_level & BIT(4))
+				I("%s, in Resume!\n", __func__);
+		}
+	}
+
+	check_sort_sts = himax_check_mode(checktype);
+	if (check_sort_sts < NO_ERR) {
+		ret_val = HX_INSP_FAIL;
+		goto fail_wait_sorting_mode;
+	}
+	if (check_sort_sts) {
 		/*himax_check_mode(checktype);*/
 
 		I("Need Change Mode ,target=%s\n",
 		g_himax_inspection_mode[checktype]);
 
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:start sense off!\n", __func__);
 		g_core_fp.fp_sense_off(true);
-		hx_turn_on_mp_func(1);
-
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:end sense off!\n", __func__);
 #if !defined(HX_ZERO_FLASH)
+		g_core_fp.fp_turn_on_mp_func(1);
 		if (g_core_fp.fp_reload_disable != NULL)
 			g_core_fp.fp_reload_disable(1);
 #endif
@@ -1380,34 +1481,58 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 		switch (checktype) {
 		case HX_WT_NOISE:
 		case HX_ABS_NOISE:
-			n_frame = NOISEFRAME;
+			if (g_hx_inspt_setting_val[NFRAME] > 0)
+				n_frame = g_hx_inspt_setting_val[NFRAME];
+			else
+				n_frame = NOISEFRAME;
 			break;
 		case HX_ACT_IDLE_RAWDATA:
 		case HX_ACT_IDLE_NOISE:
 		case HX_ACT_IDLE_BPN_RAWDATA:
-			n_frame = NORMAL_IDLE_RAWDATA_NOISEFRAME;
+			if (g_hx_inspt_setting_val[IDLE_NFRAME] > 0)
+				n_frame = g_hx_inspt_setting_val[IDLE_NFRAME];
+			else
+				n_frame = NORMAL_IDLE_RAWDATA_NOISEFRAME;
 			break;
 		case HX_LP_RAWDATA:
 		case HX_LP_BPN_RAWDATA:
-			n_frame = LP_RAWDATAFRAME;
+			if (g_hx_inspt_setting_val[LP_RAW_NFRAME] > 0)
+				n_frame = g_hx_inspt_setting_val[LP_RAW_NFRAME];
+			else
+				n_frame = LP_RAWDATAFRAME;
 			break;
 		case HX_LP_WT_NOISE:
 		case HX_LP_ABS_NOISE:
-			n_frame = LP_NOISEFRAME;
+			if (g_hx_inspt_setting_val[LP_NOISE_NFRAME] > 0)
+				n_frame =
+					g_hx_inspt_setting_val[LP_NOISE_NFRAME];
+			else
+				n_frame = LP_NOISEFRAME;
 			break;
 		case HX_LP_IDLE_RAWDATA:
 		case HX_LP_IDLE_BPN_RAWDATA:
-			n_frame = LP_IDLE_RAWDATAFRAME;
+			if (g_hx_inspt_setting_val[LP_IDLE_RAW_NFRAME] > 0)
+				n_frame =
+				g_hx_inspt_setting_val[LP_IDLE_RAW_NFRAME];
+			else
+				n_frame = LP_IDLE_RAWDATAFRAME;
 			break;
 		case HX_LP_IDLE_NOISE:
-			n_frame = LP_IDLE_NOISEFRAME;
+			if (g_hx_inspt_setting_val[LP_IDLE_NOISE_NFRAME] > 0)
+				n_frame =
+				g_hx_inspt_setting_val[LP_IDLE_NOISE_NFRAME];
+			else
+				n_frame = LP_IDLE_NOISEFRAME;
 			break;
 		default:
 			n_frame = OTHERSFRAME;
 		}
 		himax_set_N_frame(n_frame, checktype);
-
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:start sense on!\n", __func__);
 		g_core_fp.fp_sense_on(1);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:end sense on!\n", __func__);
 
 	}
 
@@ -1419,7 +1544,11 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 	}
 	himax_switch_data_type(checktype);
 
-	ret_val |= himax_get_rawdata(RAW, datalen);
+	ret_val |= himax_get_rawdata(RAW, datalen, checktype);
+
+	/* back to normal */
+	himax_switch_data_type(HX_BACK_NORMAL);
+
 	if (ret_val) {
 		E("%s: himax_get_rawdata FAIL\n", __func__);
 		ret_val |= (1 << (checktype + ERR_SFT));
@@ -1429,15 +1558,12 @@ static uint32_t mpTestFunc(uint8_t checktype, uint32_t datalen)
 	/*get Max DC from FW*/
 	g_dc_max = himax_get_max_dc();
 
-	/* back to normal */
-	himax_switch_data_type(HX_BACK_NORMAL);
-
 	I("%s: Init OK, start to test!\n", __func__);
 
 	len += snprintf(g_start_log+len, 256 * sizeof(char), "\n%s%s\n",
 		g_himax_inspection_mode[checktype], ": data as follow!\n");
 
-	ret_val |= himax_data_campare(checktype, RAW, ret_val);
+	ret_val |= himax_data_compare(checktype, RAW, ret_val);
 
 	himax_get_arraydata_edge(RAW);
 
@@ -1490,11 +1616,13 @@ static int hiamx_parse_str2int(char *str)
 {
 	int i = 0;
 	int temp_cal = 0;
-	int result = 0;
-	int str_len = strlen(str);
+	int result = -948794;
+	unsigned int str_len = strlen(str);
 	int negtive_flag = 0;
 
-	for (i = 0; i < strlen(str); i++) {
+	for (i = 0; i < str_len; i++) {
+		if (i == 0)
+			result = 0;
 		if (str[i] != '-' && str[i] > '9' && str[i] < '0') {
 			E("%s: Parsing fail!\n", __func__);
 			result = -9487;
@@ -1544,7 +1672,7 @@ int hx_find_crtra_id(char *input)
 
 	return result;
 }
-
+#ifdef HX_INSPT_DBG
 int hx_print_crtra_after_parsing(void)
 {
 	int i = 0, j = 0;
@@ -1554,7 +1682,7 @@ int hx_print_crtra_after_parsing(void)
 		I("Now is %s\n", g_hx_inspt_crtra_name[i]);
 		if (g_inspt_crtra_flag[i] == 1) {
 			for (j = 0; j < all_mut_len; j++) {
-				I("%d, ", g_inspection_criteria[i][j]);
+				PI("%d, ", g_inspection_criteria[i][j]);
 				if (j % 16 == 15)
 					PI("\n");
 			}
@@ -1566,6 +1694,7 @@ int hx_print_crtra_after_parsing(void)
 
 	return 0;
 }
+#endif
 
 static int hx_crtra_get(char *result, int himax_count_type, int comprae_data)
 {
@@ -1581,34 +1710,122 @@ static int hx_crtra_get(char *result, int himax_count_type, int comprae_data)
 		return HX_INSP_EFILE;
 	}
 
-	if (private_ts->debug_log_level & BIT(4)) {
+#ifdef HX_INSPT_DBG
 		/* dbg:print all of criteria from parsing file */
 		hx_print_crtra_after_parsing();
-	}
+#endif
 
 	return HX_INSP_OK;
 }
+static int hx_check_char_val(char input)
+{
+	int result = NO_ERR;
 
-static int himax_parse_criteria_str(char *str_data, int hx_str_len)
+	if (input >= 'A' && input <= 'Z') {
+		result = -1;
+		goto END;
+	}
+	if (input >= 'a' && input <= 'z') {
+		result = -1;
+		goto END;
+	}
+	if (input >= '0' && input <= '9') {
+		result = 1;
+		goto END;
+	}
+END:
+	return result;
+}
+static int hx_check_criteria(const struct firmware *file_entry,
+	char *start_str, int tx_num, int rx_num)
+{
+	int now_pos = 0;
+	int result = NO_ERR;
+	int rx_count = 0;
+	int tx_count = 0;
+	int i = 0;
+
+	now_pos = (int) (start_str - (char *)file_entry->data);
+
+	/* Count RX number in criteria */
+	for (i = 0; now_pos + i < file_entry->size; i++) {
+		if (*(file_entry->data + (now_pos + i)) >= 'A'
+			&& *(file_entry->data + (now_pos + i)) <= 'Z') {
+			I("%s, get the character: %c!\n",
+				__func__, *(file_entry->data + (now_pos + i)));
+			break;
+		}
+		if (*(file_entry->data + (now_pos + i)) == ',')
+			rx_count++;
+		/* reduce the last of sign:','
+		 *	but now determine it is the fail format
+		 * if (*(file_entry->data + (now_pos + i - 1 )) == ','
+		 *	&& *(file_entry->data + (now_pos + i)) == '\n')
+		 *	rx_count--;
+		 *	if (*(file_entry->data + (now_pos + i - 1 )) == ','
+		 *	&& *(file_entry->data + (now_pos + i)) == '\r')
+		 *	rx_count--;
+		 */
+		if (*(file_entry->data + (now_pos + i)) == '\n') {
+			rx_count++;
+			break;
+		}
+	}
+
+	if (rx_count != rx_num) {
+		E("%s,RX Error, parse size is %d, but this is %d!\n",
+			__func__, rx_count, rx_num);
+		result = HX_INSP_EFILE;
+		goto END;
+	}
+
+	/* Count TX number in  criteria*/
+	for (i = 0; now_pos + i < file_entry->size; i++) {
+		if (hx_check_char_val(*(file_entry->data + (now_pos + i)))
+			< NO_ERR) {
+			I("%s,TX collect over, get the character: %c!\n",
+				__func__, *(file_entry->data + (now_pos + i)));
+			break;
+		}
+		if (*(file_entry->data + (now_pos + i)) == '\n')
+			tx_count++;
+	}
+
+	if (tx_count != tx_num) {
+		E("%s,TX Error, parse size is %d, but this is %d!\n",
+			__func__, tx_count, tx_num);
+		result = HX_INSP_EFILE;
+		goto END;
+	}
+
+	I("%s:parse TX count is %d, RX count is %d!\n",
+		__func__, tx_count, rx_count);
+END:
+	return result;
+}
+
+static int himax_parse_criteria_str(int match_start, int hx_str_len,
+	const struct firmware *file_entry, int tx_num, int rx_num)
 {
 	int err = HX_INSP_OK;
 	char result[100] = {0};
 	char str_rslt[100] = {0};
-	int str_rslt_nm = 0;
-	int result_nm = 0;
 	char str_len = 0;
 	char *str_addr = NULL;
 	int str_flag = 1;
-	int i, j, k = 0;
+	int i, j = 0; //, k
 	int crtra_id = 0;
-	int mul_num = ic_data->HX_TX_NUM * ic_data->HX_RX_NUM;
+	int mul_num = tx_num * rx_num;
 	int flag = 1;
 	int temp;
+	char *str_data;
+	int now_pointer_file = 0;
 
-	I("%s,Entering\n", __func__);
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s,Entering\n", __func__);
 
-	for (str_rslt_nm = 0; str_rslt_nm < hx_str_len; str_rslt_nm++)
-		str_rslt[str_rslt_nm] = *(str_data + str_rslt_nm);
+	str_data = (char *)(file_entry->data + match_start);
+	memcpy(&str_rslt[0], str_data, hx_str_len);
 
 	crtra_id = hx_find_crtra_id(str_rslt);
 	if (crtra_id == -1) {
@@ -1619,9 +1836,42 @@ static int himax_parse_criteria_str(char *str_data, int hx_str_len)
 
 	str_data = str_data + hx_str_len + 1;
 
+	/* Check the criteria file OK or not */
+	if (hx_check_criteria(file_entry, str_data, tx_num, rx_num)
+		== HX_INSP_EFILE)
+		return HX_INSP_EFILE;
 	for (i = 0; i < mul_num; i++) {
 		if (i <= mul_num - 2) {
+			now_pointer_file = (int) (str_data -
+				(char *)file_entry->data);
+			/* if the search counter is over than file size,
+			 * broken the work
+			 */
+			if ((now_pointer_file >= file_entry->size)
+				&& now_pointer_file > 0) {
+				E("Over file size 1 !\n");
+				return HX_INSP_EFILE;
+			}
 			while (flag) {
+				/* Check search counter is over
+				 * than file size or not,
+				 * broken the work
+				 */
+				if (now_pointer_file + flag
+					>= (int)file_entry->size) {
+					E("Over file size 2!\n");
+					return HX_INSP_EFILE;
+				}
+				if (hx_check_char_val(*(str_data+flag))
+					< NO_ERR) {
+					E("%s,Need INT but it's str=%s:%c\n",
+						__func__, str_rslt,
+						*(str_data+flag));
+						return HX_INSP_EFILE;
+				}
+				/* the starting of value must be ','
+				 * so using this sign to start get content value
+				 */
 				if (*(str_data + flag) == ',') {
 					str_addr = str_data + flag;
 					flag = 1;
@@ -1629,25 +1879,29 @@ static int himax_parse_criteria_str(char *str_data, int hx_str_len)
 				}
 				flag++;
 			}
+
 			if (str_addr == NULL)
 				continue;
+			/* determine the full content
+			 * and assign to other container
+			 */
 			str_flag = 1;
 			str_len = str_addr - str_data;
 			for (j = 1; j <= str_len; j++) {
-				if ((*(str_data+j) == '\r'
-					|| *(str_data+j) == '\n')) {
+				if ((*(str_data + j) == '\r'
+					|| *(str_data + j) == '\n'
+					|| *(str_data + j) == '\0')) {
 					memset(result, 0, 100);
-					for (k = 0; k < j ; k++)
-						result[k] = *(str_data + k);
+					memcpy(&result[0], str_data, j);
 					str_flag = 0;
 					break;
 				}
 			}
 			if (str_flag) {
 				memset(result, 0, 100);
-				for (k = 0; k < str_len; k++)
-					result[k] = *(str_data + k);
+				memcpy(&result[0], str_data, str_len);
 			}
+			/* parse to content string */
 			err = hx_crtra_get(result, crtra_id, i);
 			if (err != HX_INSP_OK) {
 				E("%s:Get crrteria Fail!!\n", __func__);
@@ -1655,15 +1909,14 @@ static int himax_parse_criteria_str(char *str_data, int hx_str_len)
 			}
 			str_data = str_addr + 1;
 		} else{
+			/* last data of mutual */
 			temp = 1;
-			while (*(str_data + temp) <= '9'
-			&& *(str_data + temp) >= '0')
+			while (hx_check_char_val((*(str_data + temp)))
+				> NO_ERR)
 				temp++;
 			str_len = temp;
 			memset(result, 0, 100);
-			for (result_nm = 0; result_nm < str_len; result_nm++)
-				result[result_nm] = *(str_data + result_nm);
-
+			memcpy(&result[0], str_data, str_len);
 			err = hx_crtra_get(result, crtra_id, mul_num - 1);
 			if (err != HX_INSP_OK) {
 				E("%s:Get crrteria Fail!\n", __func__);
@@ -1672,7 +1925,8 @@ static int himax_parse_criteria_str(char *str_data, int hx_str_len)
 		}
 	}
 
-	I("%s,END\n", __func__);
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s,END\n", __func__);
 	return err;
 	/* parsing Criteria end */
 }
@@ -1715,30 +1969,169 @@ static int himax_test_item_parse(char *str_data, int str_size)
 	return ret;
 }
 
+static void strcpy_idx(char *str, char start, char end)
+{
+	int i = 0;
+	int start_idx = 0;
+	int end_idx = 0;
+	char *result;
+
+	if (str == NULL) {
+		E("%s, input string is null!\n", __func__);
+		return;
+	}
+
+	start_idx = (int)strcspn(str, &start);
+	end_idx = (int)strcspn(str, &end);
+
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s:start_idx = %d, end_idx = %d\n",
+			__func__, start_idx, end_idx);
+
+	if (end_idx < start_idx) {
+		E("%s, end < start, fail\n", __func__);
+		return;
+	}
+	result = kzalloc(sizeof(char) * (end_idx - start_idx), GFP_KERNEL);
+
+	/* skip index 0, because start(char) doesn't include*/
+	for (i = 0; *(str + i) != end; i++)
+		result[i] = str[(start_idx + 1) + i];
+
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s:result=%s\n", __func__, result);
+	memset(str, 0x00, strlen(str));
+	memcpy(&str[0], &result[0], sizeof(char) * strlen(result));
+	kfree(result);
+}
+static int himax_parse_criteria_setting(const struct firmware *file_entry)
+{
+	int i = 0, j = 0;
+	int result = -1;
+	int match_start = -1;
+	int match_end = -1;
+	char *find;
+	char *line;
+	int test_int = 0;
+	int comm_1st = -1;
+
+	line = kzalloc(sizeof(char) * 128, GFP_KERNEL);
+
+	/* check all of item in the csv with g_hx_inspt_setting_name */
+	while (g_hx_inspt_setting_name[i] != NULL) {
+		memset(line, 0x00, sizeof(char) * 128);
+
+		/* check the name of item */
+		find = strnstr(file_entry->data,
+			g_hx_inspt_setting_name[i], file_entry->size);
+		if (find == NULL) {
+			I("%s, Can't find %s, skip\n",
+				__func__, g_hx_inspt_setting_name[i]);
+			result = -1;
+			i++;
+			continue;
+		} else {
+			match_start = (int) (find - (char *)file_entry->data);
+			memcpy(line, &file_entry->data[match_start],
+				sizeof(char) * 128);
+		}
+
+		/* get 1 line with saperate by NewLine sign */
+		match_end = strcspn(line, "\n");
+		if (match_end == strlen(line)) {
+			/* may find the entire line.. */
+			I("%s, Can't find end of match with LF in %s, skip\n",
+				__func__, g_hx_inspt_setting_name[i]);
+			result = -1;
+			i++;
+			continue;
+		}
+
+		/* Define the end of Line,
+		 * before NewLine will be \r(windows), ',' (format, 2nd)
+		 * it should remove this fr parsing easily
+		 */
+		for (j = 0; j < match_end; j++) {
+			if (comm_1st < 0 && line[j] == ',') {
+				comm_1st = j;
+				continue;
+			} else if (line[j] == 0x0D /* CF, \r */
+			|| line[j] == 0x0A         /* LF, new line */
+			|| line[j] == ',') {       /* 2nd ,*/
+				line[j] = '\0';
+				match_end = j;
+				break;
+			}
+		}
+		comm_1st = -1;
+		if (private_ts->debug_log_level & BIT(4))
+			I("Line=%s,start = %d, end=%d\n",
+				line, match_start, match_end);
+
+		/* get the number string, and set the end sign for line end */
+		strcpy_idx(line, ',', '\0');
+		if (line == NULL) {
+			E("%s, get value fail for %s!\n",
+				__func__, g_hx_inspt_setting_name[i]);
+			result = -1;
+			i++;
+			continue;
+		}
+		if (private_ts->debug_log_level & BIT(4))
+			I("last..Line=%s\n", line);
+		test_int = hiamx_parse_str2int(line);
+		g_hx_inspt_setting_val[i] = test_int;
+		I("%s:[%d] %s,result value=%d\n", __func__,
+			i, g_hx_inspt_setting_name[i],
+			g_hx_inspt_setting_val[i]);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:test_int=%d\n", __func__, test_int);
+		if (test_int <= -9487) {
+			result = HX_INSP_EFILE;
+			break;
+		}
+		i++;
+	}
+
+	kfree(line);
+	return result;
+}
+
 
 static int himax_parse_criteria(const struct firmware *file_entry)
 {
 	int ret = 0;
 	int i = 0;
 	int start_str_len = 0;
+	int match_start = -1;
 	char *start_ptr = NULL;
+	int tx_num = ic_data->HX_TX_NUM;
+	int rx_num = ic_data->HX_RX_NUM;
 
+	if (himax_parse_criteria_setting(file_entry) == HX_INSP_EFILE) {
+		ret = HX_INSP_EFILE;
+		goto END;
+	}
+
+	i = 0;
 	while (g_hx_inspt_crtra_name[i] != NULL) {
-
 		start_ptr = strnstr(file_entry->data,
 			g_hx_inspt_crtra_name[i], file_entry->size);
-
 		if (start_ptr != NULL) {
 			I("g_hx_inspt_crtra_name[%d] = %s\n",
 				i, g_hx_inspt_crtra_name[i]);
 			start_str_len = strlen(g_hx_inspt_crtra_name[i]);
-
-			ret |= himax_parse_criteria_str(start_ptr,
-				start_str_len);
+			match_start = (int)(start_ptr -
+				(char *)(file_entry->data));
+			ret |= himax_parse_criteria_str(match_start,
+				start_str_len, file_entry,
+				tx_num, rx_num);
+			if (ret >= HX_INSP_EFILE)
+				break;
 		}
 		i++;
 	}
-
+END:
 	return ret;
 }
 
@@ -1768,8 +2161,6 @@ static int himax_parse_test_dri_file(const struct firmware *file_entry)
 		start_str_len = strlen(str[0]);
 		start_ptr = strnstr(file_entry->data, str[0], file_entry->size);
 		end_ptr = strnstr(file_entry->data, str[1], file_entry->size);
-		str_size = end_ptr - start_ptr - start_str_len;
-		/*I("%s,String Length = %d\n", __func__, str_size);*/
 
 		if (start_ptr == NULL || end_ptr == NULL) {
 			E("%s,Can't find string %s\n", __func__,
@@ -1780,6 +2171,9 @@ static int himax_parse_test_dri_file(const struct firmware *file_entry)
 			/*strlen(g_hx_head_str[i])) == 0) {*/
 				/* get project informaion - Not Use*/
 			/*}*/
+			str_size = end_ptr - start_ptr - start_str_len;
+			/*I("%s,String Length = %d\n", __func__, str_size);*/
+
 			if (strncmp(g_hx_head_str[i], "TestItem",
 			strlen(g_hx_head_str[i])) == 0) {
 				/*get Test Item*/
@@ -1906,8 +2300,11 @@ static void himax_test_item_chk(int csv_test)
 			| g_test_item_flag[HX_LP_IDLE_BPN_RAWDATA]
 			| g_test_item_flag[HX_LP_IDLE_NOISE];
 
-	for (i = 0; i < HX_CRITERIA_ITEM - 1; i++)
-		I("g_test_item_flag[%d] = %d\n", i, g_test_item_flag[i]);
+	if (private_ts->debug_log_level & BIT(4)) {
+		for (i = 0; i < HX_CRITERIA_ITEM - 1; i++)
+			I("g_test_item_flag[%d] = %d\n",
+				i, g_test_item_flag[i]);
+	}
 }
 
 int hx_get_size_str_arr(char **input)
@@ -1925,26 +2322,92 @@ int hx_get_size_str_arr(char **input)
 	return result;
 }
 
-static void hx_print_ic_id(void)
+#if defined(HX_ZERO_FLASH)
+static void hx_print_fw_info(void)
 {
-	uint8_t i;
-	int len = 0;
+	uint32_t len = 0;
 	char *prt_data = NULL;
+	int fw_ver;
+	int config_ver;
+	int touch_cfg_ver;
+	int display_cfg_ver;
+	int cid_maj_ver;
+	int cid_min_ver;
+	int panel_ver;
+	uint8_t cus_info[12];
+	uint8_t proj_info[12];
+	uint8_t data[12] = {0};
+	uint8_t tmp_addr[4];
+	int buf_size = 1024;
 
-	prt_data = kzalloc(sizeof(char) * HX_SZ_ICID, GFP_KERNEL);
+	prt_data = kzalloc(sizeof(char) * (buf_size), GFP_KERNEL);
 	if (prt_data == NULL) {
 		E("%s: Memory allocation falied!\n", __func__);
 		return;
 	}
 
-	len += snprintf(prt_data + len, HX_SZ_ICID - len,
-			"IC ID : ");
-	for (i = 0; i < 13; i++) {
-		len += snprintf(prt_data + len, HX_SZ_ICID - len,
-				"%02X", ic_data->vendor_ic_id[i]);
+	himax_parse_assign_cmd(fw_addr_fw_ver_addr, tmp_addr, sizeof(tmp_addr));
+	g_core_fp.fp_register_read(tmp_addr, data, DATA_LEN_4);
+	panel_ver =  data[0];
+	fw_ver = data[1] << 8 | data[2];
+
+	himax_parse_assign_cmd(fw_addr_fw_cfg_addr, tmp_addr, sizeof(tmp_addr));
+	g_core_fp.fp_register_read(tmp_addr, data, DATA_LEN_4);
+	config_ver = data[2] << 8 | data[3];
+	touch_cfg_ver = data[2];
+	display_cfg_ver = data[3];
+
+	himax_parse_assign_cmd(fw_addr_fw_vendor_addr, tmp_addr,
+		sizeof(tmp_addr));
+	g_core_fp.fp_register_read(tmp_addr, data, DATA_LEN_4);
+	cid_maj_ver = data[2];
+	cid_min_ver = data[3];
+
+	himax_parse_assign_cmd(fw_addr_cus_info, tmp_addr, sizeof(tmp_addr));
+	g_core_fp.fp_register_read(tmp_addr, data, 12);
+	memcpy(cus_info, data, 12);
+
+	himax_parse_assign_cmd(fw_addr_proj_info, tmp_addr, sizeof(tmp_addr));
+	g_core_fp.fp_register_read(tmp_addr, data, 12);
+	memcpy(proj_info, data, 12);
+
+	len += snprintf(prt_data + len, buf_size - len,
+		"\nFW_VER = 0x%2.2X\n", fw_ver);
+
+	if (private_ts->chip_cell_type == CHIP_IS_ON_CELL) {
+		len += snprintf(prt_data + len, buf_size - len,
+			"CONFIG_VER = 0x%2.2X\n", config_ver);
+	} else {
+		len += snprintf(prt_data + len, buf_size - len,
+			"TOUCH_VER = 0x%2.2X\n", touch_cfg_ver);
+		len += snprintf(prt_data + len, buf_size - len,
+			"DISPLAY_VER = 0x%2.2X\n", display_cfg_ver);
 	}
-	len += snprintf(prt_data + len, HX_SZ_ICID - len,
-			"\n");
+
+	if (cid_maj_ver < 0 && cid_min_ver < 0) {
+		len += snprintf(prt_data + len, buf_size - len,
+			"CID_VER = NULL\n");
+	} else {
+		len += snprintf(prt_data + len, buf_size - len,
+			"CID_VER = 0x%2.2X\n",
+			(ic_data->vendor_cid_maj_ver << 8 |
+			ic_data->vendor_cid_min_ver));
+	}
+
+	if (panel_ver < 0) {
+		len += snprintf(prt_data + len, buf_size - len,
+			"PANEL_VER = NULL\n");
+	} else {
+		len += snprintf(prt_data + len, buf_size - len,
+			"PANEL_VER = 0x%2.2X\n", panel_ver);
+	}
+
+	if (private_ts->chip_cell_type == CHIP_IS_IN_CELL) {
+		len += snprintf(prt_data + len, buf_size - len,
+			"Cusomer = %s\n", cus_info);
+		len += snprintf(prt_data + len, buf_size - len,
+			"Project = %s\n", proj_info);
+	}
 
 	memcpy(&g_rslt_data[0], prt_data, len);
 	g_rslt_data_len = len;
@@ -1952,13 +2415,19 @@ static void hx_print_ic_id(void)
 
 	kfree(prt_data);
 }
+#endif
 
 static int himax_self_test_data_init(void)
 {
 	const struct firmware *file_entry = NULL;
 	struct himax_ts_data *ts = private_ts;
+	//+bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
+	struct timeval  ktv;
+         struct rtc_time rtc_tm;
+	//-bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
 	char *file_name_1 = "hx_criteria.dri";
 	char *file_name_2 = "hx_criteria.csv";
+	int setting_sz = -1;
 	int ret = HX_INSP_OK;
 	int err = 0;
 	int i = 0;
@@ -2021,6 +2490,19 @@ static int himax_self_test_data_init(void)
 			goto err_malloc_rslt_data;
 		}
 	}
+
+	setting_sz = hx_get_size_str_arr(g_hx_inspt_setting_name);
+	I("There are %d kinds of setting items\n", setting_sz);
+	g_hx_inspt_setting_val = kcalloc(setting_sz, sizeof(int),
+		GFP_KERNEL);
+	if (g_hx_inspt_setting_val == NULL) {
+		E("%s,%d: Memory allocation falied!\n", __func__, __LINE__);
+		ret = HX_INSP_MEMALLCTFAIL;
+		goto err_malloc_inspection_setting_val;
+	}
+	for (i = 0 ; i < setting_sz; i++)
+		g_hx_inspt_setting_val[i] = -1;
+
 	I("%s: initialize g_rslt_data, length = %d\n",
 		__func__, g_1kind_raw_size);
 	memset(g_rslt_data, 0x00, g_1kind_raw_size  * sizeof(char));
@@ -2064,14 +2546,29 @@ static int himax_self_test_data_init(void)
 		}
 	}
 
+	//+bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
+    	do_gettimeofday(&ktv);
+   	 ktv.tv_sec -= sys_tz.tz_minuteswest * 60;
+    	rtc_time_to_tm(ktv.tv_sec, &rtc_tm);
+
+    	snprintf(g_file_path, sizeof(g_file_path),
+			"%s%s-%04d%02d%02d_%02d%02d%02d.txt", HX_RSLT_OUT_PATH, HX_RSLT_OUT_FILE, 
+			rtc_tm.tm_year + 1900, rtc_tm.tm_mon + 1, rtc_tm.tm_mday,
+        			rtc_tm.tm_hour, rtc_tm.tm_min,rtc_tm.tm_sec);
+	/*
 	snprintf(g_file_path, (int)(strlen(HX_RSLT_OUT_PATH)
 			+ strlen(HX_RSLT_OUT_FILE)+1),
 			"%s%s", HX_RSLT_OUT_PATH, HX_RSLT_OUT_FILE);
+	*/
+	//-bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
 
 	file_w_flag = true;
 	return ret;
 
 err_open_criteria_file:
+	kfree(g_hx_inspt_setting_val);
+	g_hx_inspt_setting_val = NULL;
+err_malloc_inspection_setting_val:
 	kfree(g_rslt_data);
 	g_rslt_data = NULL;
 err_malloc_rslt_data:
@@ -2130,11 +2627,9 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	uint32_t test_size = ic_data->HX_TX_NUM	* ic_data->HX_RX_NUM
 			+ ic_data->HX_TX_NUM + ic_data->HX_RX_NUM;
 	int i = 0;
+#if !defined(HX_ZERO_FLASH)
 	uint8_t tmp_addr[DATA_LEN_4] = {0x94, 0x72, 0x00, 0x10};
 	uint8_t tmp_data[DATA_LEN_4] = {0x01, 0x00, 0x00, 0x00};
-#if defined(HX_CODE_OVERLAY)
-	uint8_t normalfw[32] = "Himax_firmware.bin";
-	uint8_t mpapfw[32] = "Himax_mpfw.bin";
 #endif
 	struct file *raw_file = NULL;
 	struct filename *vts_name = NULL;
@@ -2149,13 +2644,20 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	ret = himax_self_test_data_init();
 	if (ret > 0) {
 		E("%s: initialize self test failed\n", __func__);
+		if (ret == HX_INSP_EFILE) {
+			seq_puts(s, "Self_Test Fail:\n"
+			"- Criteria file!\n");
+		}
+
 		goto END;
 	}
 
-#if defined(HX_CODE_OVERLAY)
-	g_core_fp.fp_0f_op_file_dirly(mpapfw);
-	g_core_fp.fp_reload_disable(0);
-	g_core_fp.fp_sense_on(0x00);
+#if defined(HX_ZERO_FLASH)
+	ret = g_core_fp.fp_0f_op_file_dirly(g_fw_mp_upgrade_name);
+	if (ret) {
+		E("%s: upgrade MPFW fail, code[%d]!!\n", __func__, ret);
+		goto UPDATE_MPFW_FAIL;
+	}
 #endif
 
 	if (!kp_getname_kernel) {
@@ -2176,9 +2678,8 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	}
 
 	fs = get_fs();
-	set_fs(get_ds());
+	set_fs(KERNEL_DS);
 
-	hx_print_ic_id();
 	if (file_w_flag) {
 		vfs_write(raw_file, g_rslt_data, g_rslt_data_len, &pos);
 		pos += g_rslt_data_len;
@@ -2186,7 +2687,7 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 
 	/*Do normal test items*/
 	for (i = 0; i < HX_CRITERIA_ITEM; i++) {
-		if (i < HX_LP_RAWDATA) {
+		if (i < HX_LP_WT_NOISE) {
 			if (g_test_item_flag[i] == 1) {
 				I("%d. %s Start\n", i,
 					g_himax_inspection_mode[i]);
@@ -2202,6 +2703,9 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 
 				I("%d. %s End, ret = %d\n", i,
 					g_himax_inspection_mode[i], ret);
+
+				if (ret)
+					goto SELF_TEST_FAIL;
 			}
 		} else {
 			break;
@@ -2212,8 +2716,11 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 	if (do_lpwg_test) {
 		himax_press_powerkey();
 		/* Wait suspend done */
-		while (private_ts->suspend_resume_done != 1)
+		while (private_ts->suspend_resume_done != 1) {
 			usleep_range(1000, 1001);
+			if (private_ts->debug_log_level & BIT(4))
+				I("Waiting for tp suspend!\n");
+		}
 		private_ts->suspend_resume_done = 0;
 
 		for (; i < HX_CRITERIA_ITEM; i++) {
@@ -2231,38 +2738,80 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 				ret |= rslt;
 
 				I("%d.%s End\n", i, g_himax_inspection_mode[i]);
+
+				if (ret)
+					goto SELF_TEST_LP_FAIL;
 			}
 		}
+
+SELF_TEST_LP_FAIL:
 		himax_press_powerkey();
 		/* Wait resume done */
 		while (private_ts->suspend_resume_done != 1)
 			usleep_range(1000, 1001);
 	}
+
+SELF_TEST_FAIL:
+	if (ret) {
+		for (; i < HX_CRITERIA_ITEM; i++) {
+			if (g_test_item_flag[i] == 1)
+				ret |= 1 << (i+ERR_SFT);
+		}
+		/* output FW version */
+	#if defined(HX_ZERO_FLASH)
+		hx_print_fw_info();
+		vfs_write(raw_file, g_rslt_data, g_rslt_data_len, &pos);
+		pos += g_rslt_data_len;
+	#endif
+	}
+
 	if (file_w_flag)
 		filp_close(raw_file, NULL);
+	if (!kp_putname_kernel) {
+		E("kp_putname_kernel is NULL, not open file!\n");
+		file_w_flag = false;
+	} else if (file_w_flag != false)
+		kp_putname_kernel(vts_name);
+
 	set_fs(fs);
 
-#if defined(HX_CODE_OVERLAY)
-	private_ts->in_self_test = 0;
-	g_core_fp.fp_0f_op_file_dirly(normalfw);
-	hx_turn_on_mp_func(0);
-	/* set N frame back to default value 1*/
-	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
-	g_core_fp.fp_reload_disable(0);
-	g_core_fp.fp_sense_on(0);
+
+#if defined(HX_ZERO_FLASH)
+UPDATE_MPFW_FAIL:
+	g_core_fp.fp_0f_op_file_dirly(g_fw_boot_upgrade_name);
 #else
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s:start sense off!\n", __func__);
 	g_core_fp.fp_sense_off(true);
-	hx_turn_on_mp_func(0);
+	if (private_ts->debug_log_level & BIT(4))
+		I("%s:end sense off!\n", __func__);
+	g_core_fp.fp_turn_on_mp_func(0);
 	/*himax_set_N_frame(1, HX_INSPECTION_WT_NOISE);*/
 	/* set N frame back to default value 1*/
-	g_core_fp.fp_register_write(tmp_addr, 4, tmp_data, 0);
-#if !defined(HX_ZERO_FLASH)
+	g_core_fp.fp_register_write(tmp_addr, tmp_data, 4);
 	if (g_core_fp.fp_reload_disable != NULL)
 		g_core_fp.fp_reload_disable(0);
-#endif
-	g_core_fp.fp_sense_on(0);
-#endif
 
+	if (himax_check_mode(HX_RAWDATA)) {
+		I("%s:try to  Need to back to Normal!\n", __func__);
+		himax_switch_mode_inspection(HX_RAWDATA);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:start sense on!\n", __func__);
+		g_core_fp.fp_sense_on(0);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:end sense on!\n", __func__);
+		himax_wait_sorting_mode(HX_RAWDATA);
+	} else {
+		I("%s: It has been in Normal!\n", __func__);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:start sense on!\n", __func__);
+		g_core_fp.fp_sense_on(0);
+		if (private_ts->debug_log_level & BIT(4))
+			I("%s:end sense on!\n", __func__);
+	}
+#endif
+	//+bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
+	/*
 	if (ret == HX_INSP_OK)
 		seq_puts(s, "Self_Test Pass:\n");
 	else
@@ -2275,7 +2824,8 @@ static int himax_chip_self_test(struct seq_file *s, void *v)
 				((ret & (1 << (i + ERR_SFT)))
 				 == (1 << (i + ERR_SFT))) ? "Fail":"OK");
 		}
-	}
+	}*/
+	//-bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
 
 	himax_self_test_data_deinit();
 
@@ -2300,6 +2850,5 @@ void himax_inspect_data_clear(void)
 void himax_inspection_init(void)
 {
 	I("%s: enter, %d\n", __func__, __LINE__);
-
 	g_core_fp.fp_chip_self_test = himax_chip_self_test;
 }

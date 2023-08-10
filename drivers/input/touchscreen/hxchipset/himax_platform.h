@@ -27,7 +27,7 @@
 #endif
 
 #define HIMAX_SPI_FIFO_POLLING
-#define HIMAX_I2C_RETRY_TIMES 3
+#define HIMAX_BUS_RETRY_TIMES 3
 
 #if defined(CONFIG_TOUCHSCREEN_HIMAX_DEBUG)
 #define D(x...) pr_debug("[HXTP] " x)
@@ -65,11 +65,11 @@ do { \
 #define HX_I2C_LPM_LOAD_UA		10
 #endif
 
-#define HIMAX_common_NAME	"himax_tp"
+#define HIMAX_common_NAME	"himax_ts"
 #define HIMAX_I2C_ADDR		0x48
 #define INPUT_DEV_NAME		"himax-touchscreen"
 
-struct himax_i2c_platform_data {
+struct himax_platform_data {
 	int abs_x_min;
 	int abs_x_max;
 	int abs_x_fuzz;
@@ -91,6 +91,8 @@ struct himax_i2c_platform_data {
 	int gpio_irq;
 	int gpio_reset;
 	int gpio_3v3_en;
+	int gpio_pon;
+	int lcm_rst;
 	int (*power)(int on);
 	void (*reset)(void);
 	struct himax_virtual_key *virtual_key;
@@ -119,18 +121,15 @@ void himax_chip_common_deinit(void);
 
 void himax_ts_work(struct himax_ts_data *ts);
 enum hrtimer_restart himax_ts_timer_func(struct hrtimer *timer);
-extern int himax_bus_read(uint8_t command, uint8_t *data,
-		uint32_t length, uint8_t toRetry);
-extern int himax_bus_write(uint8_t command, uint8_t *data,
-		uint32_t length, uint8_t toRetry);
-extern int himax_bus_write_command(uint8_t command, uint8_t toRetry);
+extern int himax_bus_read(uint8_t command, uint8_t *data, uint32_t length);
+extern int himax_bus_write(uint8_t command, uint8_t *data, uint32_t length);
 extern void himax_int_enable(int enable);
 extern int himax_ts_register_interrupt(void);
 int himax_ts_unregister_interrupt(void);
 extern uint8_t himax_int_gpio_read(int pinnum);
 
-extern int himax_gpio_power_config(struct himax_i2c_platform_data *pdata);
-void himax_gpio_power_deconfig(struct himax_i2c_platform_data *pdata);
+extern int himax_gpio_power_config(struct himax_platform_data *pdata);
+void himax_gpio_power_deconfig(struct himax_platform_data *pdata);
 
 #if defined(HX_CONFIG_FB)
 extern int fb_notifier_callback(struct notifier_block *self,

@@ -115,7 +115,6 @@ obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM)	+= synaptics_tcm/
 obj-$(CONFIG_TOUCHSCREEN_FTS)	+= focaltech_touch/
 obj-$(CONFIG_TOUCHSCREEN_FT3519)   += ft3519/
 obj-$(CONFIG_TOUCHSCREEN_NT36XXX)	+= nt36xxx/
-obj-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET)	+= hxchipset/
 
 obj-$(CONFIG_TOUCHSCREEN_GOODIX_BRL)	+= goodix_berlin_mmi/
 obj-$(CONFIG_TOUCHSCREEN_NT36xxx_HOSTDL_SPI_MMI)	+= nova_0flash_mmi/
@@ -131,3 +130,10 @@ obj-$(CONFIG_INPUT_TOUCHSCREEN_ILI_9882_MMI) += ili9882_mmi/
 obj-$(CONFIG_INPUT_TOUCHSCREEN_ILI_0FLASH_MMI) += ilitek_0flash_mmi/
 obj-$(CONFIG_INPUT_HIMAX_V3_MMI) += himax_v3_mmi/
 obj-$(CONFIG_TOUCHSCREEN_CHIPONE_TDDI) += chipone_tddi_mmi/
+## //+bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
+obj-$(CONFIG_TOUCHSCREEN_OPENSHORT_TEST)  += tp_openshort.o
+## //-bug692121,shenwenbin.wt,MOD,20211015,bringup selftest function
+obj-$(CONFIG_TOUCHSCREEN_HIMAX_CHIPSET) += hxchipset/
+## //+bug692121,shenwenbin.wt,MOD,20211019,bringup 2sc NOV TP
+obj-$(CONFIG_TOUCHSCREEN_NT36xxx_HOSTDL_SPI)	+= NT36523W/
+## //-bug692121,shenwenbin.wt,MOD,20211019,bringup 2sc NOV TP

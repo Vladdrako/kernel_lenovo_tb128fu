@@ -36,7 +36,7 @@
 
 #define FW_SECTOR_PER_BLOCK		8
 #define FW_PAGE_PER_SECTOR		64
-#define FW_PAGE_SEZE			128
+#define FW_PAGE_SZ			128
 #define HX256B					0x100
 #define HX1K					0x400
 #define HX4K					0x1000
@@ -61,8 +61,16 @@
 #define HX_MOD_KSYM_HX852xH HX_MOD_KSYM_HX852xH
 #endif
 
+#if defined(__HIMAX_HX852xJ_MOD__)
+#define HX_MOD_KSYM_HX852xJ HX_MOD_KSYM_HX852xJ
+#endif
+
 #if defined(__HIMAX_HX83102_MOD__)
 #define HX_MOD_KSYM_HX83102 HX_MOD_KSYM_HX83102
+#endif
+
+#if defined(__HIMAX_HX83121_MOD__)
+#define HX_MOD_KSYM_HX83121 HX_MOD_KSYM_HX83121
 #endif
 
 #if defined(__HIMAX_HX83103_MOD__)
@@ -73,12 +81,19 @@
 #define HX_MOD_KSYM_HX83106 HX_MOD_KSYM_HX83106
 #endif
 
+#if defined(__HIMAX_HX83108_MOD__)
+#define HX_MOD_KSYM_HX83108 HX_MOD_KSYM_HX83108
+#endif
 #if defined(__HIMAX_HX83111_MOD__)
 #define HX_MOD_KSYM_HX83111 HX_MOD_KSYM_HX83111
 #endif
 
 #if defined(__HIMAX_HX83112_MOD__)
 #define HX_MOD_KSYM_HX83112 HX_MOD_KSYM_HX83112
+#endif
+
+#if defined(__HIMAX_HX83113_MOD__)
+#define HX_MOD_KSYM_HX83113 HX_MOD_KSYM_HX83113
 #endif
 
 #if defined(__HIMAX_HX83191_MOD__)
@@ -89,8 +104,8 @@
 #define HX_MOD_KSYM_HX83192 HX_MOD_KSYM_HX83192
 #endif
 
-#if defined(__HIMAX_HX83113_MOD__)
-#define HX_MOD_KSYM_HX83113 HX_MOD_KSYM_HX83113
+#if defined(__HIMAX_HX83121_MOD__)
+#define HX_MOD_KSYM_HX83121 HX_MOD_KSYM_HX83121
 #endif
 
 /* CORE_INIT */
@@ -104,14 +119,6 @@
 
 #if defined(CONFIG_TOUCHSCREEN_HIMAX_INCELL)
 
-#if defined(HX_AUTO_UPDATE_FW) || defined(HX_ZERO_FLASH)
-extern char *i_CTPM_firmware_name;
-#endif
-
-#if defined(HX_ZERO_FLASH)
-extern int g_f_0f_updat;
-#endif
-
 #if defined(HX_TP_PROC_GUEST_INFO)
 extern struct hx_guest_info *g_guest_info_data;
 #endif
@@ -124,12 +131,15 @@ void himax_mcu_in_cmd_struct_free(void);
 void himax_mcu_on_cmd_struct_free(void);
 #endif
 
-#if defined(HX_AUTO_UPDATE_FW)
+#if defined(HX_BOOT_UPGRADE) || defined(HX_ZERO_FLASH)
 extern int g_i_FW_VER;
 extern int g_i_CFG_VER;
 extern int g_i_CID_MAJ;
 extern int g_i_CID_MIN;
-extern unsigned char *i_CTPM_FW;
+extern const struct firmware *hxfw;
+#if defined(HX_ZERO_FLASH)
+extern int g_f_0f_updat;
+#endif
 #endif
 
 extern unsigned long FW_VER_MAJ_FLASH_ADDR;
@@ -138,16 +148,11 @@ extern unsigned long CFG_VER_MAJ_FLASH_ADDR;
 extern unsigned long CFG_VER_MIN_FLASH_ADDR;
 extern unsigned long CID_VER_MAJ_FLASH_ADDR;
 extern unsigned long CID_VER_MIN_FLASH_ADDR;
-
-extern unsigned long FW_VER_MAJ_FLASH_LENG;
-extern unsigned long FW_VER_MIN_FLASH_LENG;
-extern unsigned long CFG_VER_MAJ_FLASH_LENG;
-extern unsigned long CFG_VER_MIN_FLASH_LENG;
-extern unsigned long CID_VER_MAJ_FLASH_LENG;
-extern unsigned long CID_VER_MIN_FLASH_LENG;
+extern uint32_t CFG_TABLE_FLASH_ADDR;
+extern uint32_t CFG_TABLE_FLASH_ADDR_T;
 
 extern unsigned char IC_CHECKSUM;
-#if defined(HX_ESD_RECOVERY)
+#if defined(HX_EXCP_RECOVERY)
 extern int g_zero_event_count;
 #endif
 
@@ -163,8 +168,8 @@ void himax_cable_detect_func(bool force_renew);
 int himax_report_data_init(void);
 extern int i2c_error_count;
 
-#if defined(HX_ESD_RECOVERY)
-extern u8 HX_ESD_RESET_ACTIVATE;
+#if defined(HX_EXCP_RECOVERY)
+extern u8 HX_EXCP_RESET_ACTIVATE;
 #endif
 
 /* CORE_INIT */
@@ -177,6 +182,13 @@ void himax_parse_assign_cmd(uint32_t addr, uint8_t *cmd, int len);
 
 extern void (*himax_mcu_cmd_struct_free)(void);
 /* CORE_INIT */
+
+enum HX_FLASH_SPEED_ENUM {
+	HX_FLASH_SPEED_25M = 0,
+	HX_FLASH_SPEED_12p5M = 0x01,
+	HX_FLASH_SPEED_8p3M = 0x02,
+	HX_FLASH_SPEED_6p25M = 0x03,
+};
 
 #if defined(HX_TP_PROC_GUEST_INFO)
 #define HX_GUEST_INFO_FLASH_SADDR 0x20000
@@ -238,12 +250,18 @@ struct hx_guest_info {
 
 /* CORE_FW */
 	#define fw_addr_system_reset                0x90000018
-	#define fw_addr_safe_mode_release_pw        0x90000098
 	#define fw_addr_ctrl_fw                     0x9000005c
 	#define fw_addr_flag_reset_event            0x900000e4
 	#define fw_addr_hsen_enable                 0x10007F14
 	#define fw_addr_smwp_enable                 0x10007F10
 	#define fw_usb_detect_addr                  0x10007F38
+	#define fw_usb_panel_direction_addr			0x10007f3c
+	//+OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+	#define fw_addr_game_mode					0x10007fe0
+	//-OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+	//+OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
+	#define fw_addr_prevent_notch				0x1000727c
+	//-OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
 	#define fw_addr_program_reload_from         0x00000000
 	#define fw_addr_program_reload_to           0x08000000
 	#define fw_addr_program_reload_page_write   0x0000fb00
@@ -292,8 +310,13 @@ struct hx_guest_info {
 	#define fw_addr_fw_state_addr               0x900000f8
 	#define fw_addr_fw_dbg_msg_addr             0x10007f40
 	#define fw_addr_chk_fw_status               0x900000a8
+	#define fw_addr_chk_dd_status               0x900000E8
 	#define fw_addr_dd_handshak_addr            0x900000fc
 	#define fw_addr_dd_data_addr                0x10007f80
+	#define fw_addr_clr_fw_record_dd_sts        0x10007FCC
+	#define fw_addr_ap_notify_fw_sus            0x10007FD0
+	#define fw_data_ap_notify_fw_sus_en         0xA55AA55A
+	#define fw_data_ap_notify_fw_sus_dis        0x00000000
 	#define fw_data_dd_request                  0xaa
 	#define fw_data_dd_ack                      0xbb
 	#define fw_data_rawdata_ready_hb            0xa3
@@ -310,6 +333,8 @@ struct hx_guest_info {
 	#define fw_data_ulpm_22                     0x22
 	#define fw_data_ulpm_33                     0x33
 	#define fw_data_ulpm_aa                     0xAA
+	#define fw_addr_ctrl_mpap_ovl               0x100073EC
+	#define fw_data_ctrl_mpap_ovl_on            0x107380
 
 	#define on_fw_addr_smwp_enable                 0xA2
 	#define on_fw_usb_detect_addr                  0xA4
@@ -382,6 +407,7 @@ struct hx_guest_info {
 	#define flash_data_spi200_cmd_7        0x0000003b
 	#define flash_data_spi200_cmd_8        0x00000003
 	#define flash_data_spi200_addr         0x00000000
+	#define flash_clk_setup_addr           0x80000040
 
 	#define on_flash_addr_ctrl_base  0x80000000
 	#define on_flash_addr_ctrl_auto  0x80000004
@@ -411,36 +437,39 @@ struct hx_guest_info {
 	#define	sram_passwrd_start    0x5AA5
 	#define	sram_passwrd_end      0xA55A
 
-	#define on_sram_adr_rawdata_addr 0x080002E0
+	#define on_sram_adr_rawdata_addr 0x10000400
 	#define on_sram_adr_rawdata_end  0x00000000
 	#define on_sram_cmd_conti        0x44332211
 	#define on_sram_cmd_fin          0x00000000
 	#define	on_sram_passwrd_start    0x5AA5
 	#define	on_sram_passwrd_end      0xA55A
+	
 /* CORE_SRAM */
-
+	#define PANEL_PORTRAIT_0_HDSK_PWD		0xA55AA55A
+	#define PANEL_LANDSCAPE_90_HDSK_PWD		0xA33AA33A
+	#define PANEL_LANDSCAPE_270_HDSK_PWD	0xA11AA11A 	
+	//+OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+	#define GAME_MODE_ENABLE		0xA55AA55A
+	#define GAME_MODE_DISABLE		0x00000000
+	//-OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
 /* CORE_DRIVER */
 	#define driver_addr_fw_define_flash_reload              0x10007f00
 	#define driver_addr_fw_define_2nd_flash_reload          0x100072c0
 	#define driver_data_fw_define_flash_reload_dis          0x0000a55a
 	#define driver_data_fw_define_flash_reload_en           0x00000000
 	#define driver_addr_fw_define_int_is_edge               0x10007088
-	#define driver_addr_fw_define_rxnum_txnum_maxpt         0x100070f4
+	#define driver_addr_fw_define_rxnum_txnum               0x100070f4
 	#define driver_data_fw_define_rxnum_txnum_maxpt_sorting 0x00000008
 	#define driver_data_fw_define_rxnum_txnum_maxpt_normal  0x00000014
-	#define driver_addr_fw_define_xy_res_enable             0x100070f8
+	#define driver_addr_fw_define_maxpt_xyrvs               0x100070f8
 	#define driver_addr_fw_define_x_y_res                   0x100070fc
 	#define driver_data_df_rx                               36
 	#define driver_data_df_tx                               18
 	#define driver_data_df_pt                               10
-	#define driver_data_df_x_res                            1080
-	#define driver_data_df_y_res                            1920
 	#define on_driver_addr_fw_define_int_is_edge            0x10007088
 	#define on_driver_data_df_rx                            28
 	#define on_driver_data_df_tx                            14
 	#define on_driver_data_df_pt                            10
-	#define on_driver_data_df_x_res                         1080
-	#define on_driver_data_df_y_res                         1920
 #if !defined(HX_NEW_EVENT_STACK_FORMAT)
 	#define on_driver_addr_fw_rx_tx_maxpt_num   0x0800001C
 	#define on_driver_addr_fw_xy_rev_int_edge   0x0800000C
@@ -484,6 +513,12 @@ struct hx_guest_info {
 	#define ovl_fault            0xFF
 #endif
 
+#if defined(HX_ALG_OVERLAY)
+	#define ovl_alg_request  0x11
+	#define ovl_alg_reply    0x22
+	#define ovl_alg_fault    0xFF
+#endif
+
 struct zf_info {
 	uint8_t sram_addr[4];
 	int write_size;
@@ -491,6 +526,24 @@ struct zf_info {
 	uint32_t cfg_addr;
 };
 #endif
+/* New Version 1K*/
+enum bin_desc_map_table {
+	TP_CONFIG_TABLE = 0x00000A00,
+	FW_CID = 0x10000000,
+	FW_VER = 0x10000100,
+	CFG_VER = 0x10000600,
+};
+
+/*Old Version 1K
+ *enum bin_desc_map_table {
+ *TP_CONFIG_TABLE = 0x0000000A,
+ *FW_CID = 0x10000000,
+ *FW_VER = 0x10000001,
+ *CFG_VER = 0x10000005,
+ *};
+ **/
+
+extern uint32_t dbg_reg_ary[4];
 
 struct ic_operation {
 	uint8_t addr_ahb_addr_byte_0[1];
@@ -516,7 +569,6 @@ struct ic_operation {
 
 struct fw_operation {
 	uint8_t addr_system_reset[4];
-	uint8_t addr_safe_mode_release_pw[4];
 	uint8_t addr_ctrl_fw_isr[4];
 	uint8_t addr_flag_reset_event[4];
 	uint8_t addr_hsen_enable[4];
@@ -546,6 +598,10 @@ struct fw_operation {
 	uint8_t addr_chk_fw_status[4];
 	uint8_t addr_dd_handshak_addr[4];
 	uint8_t addr_dd_data_addr[4];
+	uint8_t addr_clr_fw_record_dd_sts[4];
+	uint8_t addr_ap_notify_fw_sus[4];
+	uint8_t data_ap_notify_fw_sus_en[4];
+	uint8_t data_ap_notify_fw_sus_dis[4];
 	uint8_t data_system_reset[4];
 	uint8_t data_safe_mode_release_pw_active[4];
 	uint8_t data_safe_mode_release_pw_reset[4];
@@ -580,6 +636,9 @@ struct fw_operation {
 	uint8_t data_ahb_en[1];
 	uint8_t addr_event_addr[1];
 	uint8_t addr_usb_detect[4];
+	uint8_t addr_panel_direction[4];
+	uint8_t addr_game_mode[4];	//OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+	uint8_t addr_prevent_notch[4];  //OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
 	uint8_t addr_ulpm_33[1];
 	uint8_t addr_ulpm_34[1];
 	uint8_t data_ulpm_11[1];
@@ -632,14 +691,12 @@ struct driver_operation {
 	uint8_t addr_fw_define_flash_reload[4];
 	uint8_t addr_fw_define_2nd_flash_reload[4];
 	uint8_t addr_fw_define_int_is_edge[4];
-	uint8_t addr_fw_define_rxnum_txnum_maxpt[4];
-	uint8_t addr_fw_define_xy_res_enable[4];
+	uint8_t addr_fw_define_rxnum_txnum[4];
+	uint8_t addr_fw_define_maxpt_xyrvs[4];
 	uint8_t addr_fw_define_x_y_res[4];
 	uint8_t data_df_rx[1];
 	uint8_t data_df_tx[1];
 	uint8_t data_df_pt[1];
-	uint8_t data_df_x_res[2];
-	uint8_t data_df_y_res[2];
 	uint8_t data_fw_define_flash_reload_dis[4];
 	uint8_t data_fw_define_flash_reload_en[4];
 	uint8_t data_fw_define_rxnum_txnum_maxpt_sorting[4];
@@ -791,8 +848,6 @@ struct on_driver_operation {
 	uint8_t data_df_rx[1];
 	uint8_t data_df_tx[1];
 	uint8_t data_df_pt[1];
-	uint8_t data_df_x_res[2];
-	uint8_t data_df_y_res[2];
 };
 
 struct himax_on_core_command_operation {
@@ -815,14 +870,12 @@ struct himax_chip_entry {
 struct himax_core_fp {
 /* CORE_IC */
 	void (*fp_burst_enable)(uint8_t auto_add_4_byte);
-	int (*fp_register_read)(uint8_t *read_addr, uint32_t read_length,
-			uint8_t *read_data, uint8_t cfg_flag);
+	int (*fp_register_read)(uint8_t *addr, uint8_t *buf, uint32_t len);
 	/*int (*fp_flash_write_burst)(uint8_t *reg_byte, uint8_t *write_data);*/
 	/*void (*fp_flash_write_burst_lenth)(uint8_t *reg_byte,
 	 *		uint8_t *write_data, uint32_t length);
 	 */
-	int (*fp_register_write)(uint8_t *write_addr, uint32_t write_length,
-			uint8_t *write_data, uint8_t cfg_flag);
+	int (*fp_register_write)(uint8_t *addr, uint8_t *val, uint32_t len);
 	void (*fp_interface_on)(void);
 	void (*fp_sense_on)(uint8_t FlashMode);
 	void (*fp_tcon_on)(void);
@@ -834,13 +887,6 @@ struct himax_core_fp {
 	void (*fp_resume_ic_action)(void);
 	void (*fp_suspend_ic_action)(void);
 	void (*fp_power_on_init)(void);
-	bool (*fp_dd_clk_set)(bool enable);
-	void (*fp_dd_reg_en)(bool enable);
-	bool (*fp_dd_reg_write)(uint8_t addr, uint8_t pa_num, int len,
-			uint8_t *data, uint8_t bank);
-	bool (*fp_dd_reg_read)(uint8_t addr, uint8_t pa_num, int len,
-			uint8_t *data, uint8_t bank);
-	bool (*fp_ic_id_read)(void);
 	bool (*fp_slave_tcon_reset)(void);
 	bool (*fp_slave_adc_reset_slave)(void);
 	bool (*fp_slave_wdt_off_slave)(void);
@@ -868,6 +914,8 @@ struct himax_core_fp {
 	void (*fp_set_HSEN_enable)(uint8_t HSEN_enable, bool suspended);
 	void (*fp_diag_register_set)(uint8_t diag_command,
 			uint8_t storage_type, bool is_dirly);
+	void (*_clr_fw_reord_dd_sts)(void);
+	void (*_ap_notify_fw_sus)(int suspend);
 #if defined(HX_TP_SELF_TEST_DRIVER)
 	void (*fp_control_reK)(bool enable);
 #endif
@@ -881,7 +929,7 @@ struct himax_core_fp {
 	bool (*fp_read_event_stack)(uint8_t *buf, uint8_t length);
 	void (*fp_return_event_stack)(void);
 	bool (*fp_calculateChecksum)(bool change_iref, uint32_t size);
-	int (*fp_read_FW_status)(uint8_t *state_addr, uint8_t *tmp_addr);
+	void (*fp_read_FW_status)(void);
 	void (*fp_irq_switch)(int switch_on);
 	int (*fp_assign_sorting_mode)(uint8_t *tmp_data);
 	int (*fp_check_sorting_mode)(uint8_t *tmp_data);
@@ -909,9 +957,12 @@ struct himax_core_fp {
 			int len, bool change_iref);
 	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_128k)(unsigned char *fw,
 			int len, bool change_iref);
+	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_255k)(unsigned char *fw,
+			int len, bool change_iref);
 	void (*fp_flash_dump_func)(uint8_t local_flash_command,
 			int Flash_Size, uint8_t *flash_buffer);
 	bool (*fp_flash_lastdata_check)(uint32_t size);
+	bool (*fp_bin_desc_get)(unsigned char *fw, uint32_t max_sz);
 	bool (*fp_ahb_squit)(void);
 	void (*fp_flash_read)(uint8_t *r_data, int start_addr, int length);
 	bool (*fp_sfr_rw)(uint8_t *addr, int length,
@@ -930,15 +981,23 @@ struct himax_core_fp {
 
 /* CORE_DRIVER */
 	void (*fp_chip_init)(void);
-#if defined(HX_AUTO_UPDATE_FW)
-	int (*fp_fw_ver_bin)(void);
-#endif
 	void (*fp_pin_reset)(void);
+	uint8_t (*fp_tp_info_check)(void);
 	void (*fp_touch_information)(void);
+	void (*fp_calc_touch_data_size)(void);
 	void (*fp_reload_config)(void);
 	int (*fp_get_touch_data_size)(void);
 	void (*fp_usb_detect_set)(uint8_t *cable_config);
 	int (*fp_hand_shaking)(void);
+	void (*fp_set_panel_direction)(uint8_t direction);
+	uint8_t (*fp_read_panel_direction)(void);
+	//+OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+	void (*fp_set_game_mode)(uint8_t mode);
+	uint8_t (*fp_read_game_mode)(void);
+	//-OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
+	//+OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
+	int (*fp_set_prevent_notch)(uint8_t *data);
+	//-OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
 	int (*fp_determin_diag_rawdata)(int diag_command);
 	int (*fp_determin_diag_storage)(int diag_command);
 	int (*fp_cal_data_len)(int raw_cnt_rmd, int HX_MAX_PT, int raw_cnt_max);
@@ -950,30 +1009,25 @@ struct himax_core_fp {
 			int32_t *mutual_data,
 			int32_t *self_data);
 	void (*fp_ic_reset)(uint8_t loadconfig, uint8_t int_off);
-	int (*fp_ic_esd_recovery)(int hx_esd_event,
-			int hx_zero_event, int length);
-	void (*fp_esd_ic_reset)(void);
+	int (*fp_ic_excp_recovery)(uint32_t hx_excp_event,
+			uint32_t hx_zero_event, uint32_t length);
+	void (*fp_excp_ic_reset)(void);
 	void (*fp_resend_cmd_func)(bool suspended);
 #if defined(HX_TP_PROC_GUEST_INFO)
 	int (*guest_info_get_status)(void);
 	int (*read_guest_info)(void);
 #endif
 /* CORE_DRIVER */
+	int (*fp_turn_on_mp_func)(int on);
 #if defined(HX_ZERO_FLASH)
 	void (*fp_clean_sram_0f)(uint8_t *addr, int write_len, int type);
-	void (*fp_write_sram_0f)(const struct firmware *fw_entry,
-			uint8_t *addr,
-			int start_index,
-			uint32_t write_len);
-	int (*fp_write_sram_0f_crc)(const struct firmware *fw_entry,
-			uint8_t *addr,
-			int start_index,
-			uint32_t write_len);
-	void (*fp_firmware_update_0f)(const struct firmware *fw_entry);
-	int (*fp_0f_operation_dirly)(void);
+	void (*fp_write_sram_0f)(uint8_t *addr, const uint8_t *data,
+		uint32_t len);
+	int (*fp_write_sram_0f_crc)(uint8_t *addr, const uint8_t *data,
+		uint32_t len);
+	int (*fp_firmware_update_0f)(const struct firmware *fw_entry, int type);
 	int (*fp_0f_op_file_dirly)(char *file_name);
-	void (*fp_0f_operation)(struct work_struct *work);
-	int (*fp_0f_esd_check)(void);
+	int (*fp_0f_excp_check)(void);
 	void (*fp_0f_reload_to_active)(void);
 #if defined(HX_0F_DEBUG)
 	void (*fp_read_sram_0f)(const struct firmware *fw_entry,
@@ -982,7 +1036,6 @@ struct himax_core_fp {
 			int read_len);
 	void (*fp_read_all_sram)(uint8_t *addr, int read_len);
 	void (*fp_firmware_read_0f)(const struct firmware *fw_entry, int type);
-	void (*fp_0f_operation_check)(int type);
 #endif
 #if defined(HX_CODE_OVERLAY)
 	int (*fp_0f_overlay)(int ovl_type, int mode);
