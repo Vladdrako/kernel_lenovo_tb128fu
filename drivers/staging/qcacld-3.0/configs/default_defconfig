@@ -949,6 +949,11 @@ ifeq ($(CONFIG_LITHIUM), y)
 	CONFIG_DYNAMIC_RX_AGGREGATION := y
 endif
 
+CONFIG_DYNAMIC_RX_AGGREGATION := y
+
+#Flag to enable hdd memory dump feature
+CONFIG_FEATURE_MEMDUMP_ENABLE := y
+
 #Flag to enable/disable WLAN D0-WOW
 ifeq ($(CONFIG_PCI_MSM), y)
 ifeq ($(CONFIG_HIF_PCI), y)

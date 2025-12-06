@@ -797,9 +797,6 @@ QDF_STATUS wlansap_start_bss(struct sap_context *sap_ctx,
 		  pmac->sap.SapDfsInfo.sap_ch_switch_mode,
 		  pmac->sap.SapDfsInfo.reduced_beacon_interval);
 
-	//BEGIN MOT a19110 IKSWO-8490 Comment out initialisation of
-	//acl list. We use driver ioctl to set it
-#if 0
 	/* Copy MAC filtering settings to sap context */
 	sap_ctx->eSapMacAddrAclMode = config->SapMacaddr_acl;
 	qdf_mem_copy(sap_ctx->acceptMacList, config->accept_mac,
@@ -810,10 +807,7 @@ QDF_STATUS wlansap_start_bss(struct sap_context *sap_ctx,
 		     sizeof(config->deny_mac));
 	sap_ctx->nDenyMac = config->num_deny_mac;
 	sap_sort_mac_list(sap_ctx->denyMacList, sap_ctx->nDenyMac);
-#endif
-        //END IKSWO-8490
-        sap_ctx->beacon_tx_rate = config->beacon_tx_rate;
-
+	sap_ctx->beacon_tx_rate = config->beacon_tx_rate;
 
 	/* Fill in the event structure for FSM */
 	sap_event.event = eSAP_HDD_START_INFRA_BSS;
@@ -2237,11 +2231,11 @@ void wlansap_extend_to_acs_range(mac_handle_t mac_handle,
 	}
 
 	if (*end_ch_freq <= wlan_reg_ch_to_freq(CHAN_ENUM_2484)) {
-		*bandEndChannel = CHAN_ENUM_2472;
+		*bandEndChannel = CHAN_ENUM_2484;
 		tmp_end_ch_freq = (*end_ch_freq + ACS_2G_EXTEND) <=
-					wlan_reg_ch_to_freq(CHAN_ENUM_2472) ?
+					wlan_reg_ch_to_freq(CHAN_ENUM_2484) ?
 					(*end_ch_freq + ACS_2G_EXTEND) :
-					wlan_reg_ch_to_freq(CHAN_ENUM_2472);
+					wlan_reg_ch_to_freq(CHAN_ENUM_2484);
 	} else if (*end_ch_freq <= wlan_reg_ch_to_freq(CHAN_ENUM_5865)) {
 		*bandEndChannel = CHAN_ENUM_5865;
 		tmp_end_ch_freq = (*end_ch_freq + ACS_5G_EXTEND) <=
