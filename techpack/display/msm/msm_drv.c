@@ -1,7 +1,4 @@
 /*
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
- */
-/*
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -45,7 +42,6 @@
 #include <linux/workqueue.h>
 #include <uapi/linux/sched/types.h>
 #include <drm/drm_of.h>
-#include <linux/reboot.h>
 
 #include "msm_drv.h"
 #include "msm_kms.h"
@@ -385,11 +381,6 @@ static int msm_drm_uninit(struct device *dev)
 	if (priv->registered) {
 		drm_dev_unregister(ddev);
 		priv->registered = false;
-	}
-
-	if (priv->msm_drv_notifier.notifier_call) {
-		unregister_reboot_notifier(&priv->msm_drv_notifier);
-		priv->msm_drv_notifier.notifier_call = NULL;
 	}
 
 #ifdef CONFIG_DRM_FBDEV_EMULATION
@@ -864,23 +855,6 @@ static void msm_idle_init(struct drm_device *ddev)
 	spin_lock_init(&idle->lock);
 }
 
-static void msm_pdev_shutdown(struct platform_device *pdev);
-static int msm_drv_shutdown_notifier_cb(struct notifier_block *nb,
-					unsigned long event, void *unused)
-{
-	struct device *dev;
-	struct platform_device *pdev;
-	struct msm_drm_private *priv = container_of(nb, struct msm_drm_private,
-					msm_drv_notifier);
-
-	dev = priv->dev->dev;
-	pdev = to_platform_device(dev);
-	dev_warn(dev, "prepare to shutdown\n");
-	msm_pdev_shutdown(pdev);
-
-	return NOTIFY_DONE;
-}
-
 static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -1013,16 +987,6 @@ static int msm_drm_init(struct device *dev, struct drm_driver *drv)
 
 	drm_kms_helper_poll_init(ddev);
 
-	priv->msm_drv_notifier.notifier_call = msm_drv_shutdown_notifier_cb;
-	priv->msm_drv_notifier.next = NULL;
-	priv->msm_drv_notifier.priority = 1;
-	ret = register_reboot_notifier(&priv->msm_drv_notifier);
-	if (ret) {
-		dev_err(dev, "Failed to register for reboot_notifier. ret = %d\n",
-					ret);
-		goto fail;
-	}
-
 	return 0;
 
 fail:
@@ -1038,7 +1002,6 @@ mdss_init_fail:
 	kfree(priv);
 priv_alloc_fail:
 	drm_dev_put(ddev);
-	platform_set_drvdata(pdev, NULL);
 	return ret;
 }
 
