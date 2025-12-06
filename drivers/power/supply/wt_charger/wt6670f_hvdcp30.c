@@ -677,6 +677,54 @@ static int wt6670f_request_adapter_voltage(struct wt6670f_info *wt_chip, int vol
 	return ret;
 }
 
+#if 1
+static int wt6670f_get_vbus_voltage(struct wt6670f_info *wt_chip)
+{
+    int ret;
+    u8 reg;
+    int len;
+    u8 buf[2];
+    int adc_volt;
+    u64 calc_temp; // Changed from float to u64 to handle large multiplications
+
+    len = WT6670F_TWO_BYTE;
+    reg = WT6670F_VBUS_VOLTAGE_CMD;
+    ret = wt6670f_i2c_bulk_read(wt_chip, reg, buf, len);
+    if (ret < 0) {
+        dev_err(wt_chip->dev, "%s: fail: %d\n", __func__, ret);
+        return ret;
+    }
+
+    adc_volt = (buf[0] << WT6670F_BYTE_BIT) | buf[1];
+
+    /* * FIX: Use integer math.
+     * Original: adc * 2.4 * 1000 * (R_total / R_down) / ADC_BIT
+     * New:      adc * 2400 * R_total / ADC_BIT / R_down
+     * We multiply everything first to preserve precision, then divide.
+     */
+    
+    // 1. Convert 2.4V to 2400mV explicitly
+    calc_temp = (u64)adc_volt * 2400; 
+
+    // 2. Multiply by the resistor divider sum (R1 + R2 + R3)
+    calc_temp *= (VBUS_PULLUP_R1 + VBUS_PULLUP_R2 + VBUS_PULLDOWN_R);
+
+    // 3. Divide by the ADC resolution
+    calc_temp /= WT6670F_ADC_BIT;
+
+    // 4. Divide by the pull-down resistor
+    calc_temp /= VBUS_PULLDOWN_R;
+
+    wt_chip->vbus_volt = (int)calc_temp;
+
+    dev_info(wt_chip->dev, "%s: buf[0]: 0x%x, buf[1]: 0x%x, adc_volt: 0x%x, vbus_volt: %d\n",
+             __func__, buf[0], buf[1], adc_volt, wt_chip->vbus_volt);
+
+    return ret;
+}
+
+#else
+
 static int wt6670f_get_vbus_voltage(struct wt6670f_info *wt_chip)
 {
 	int ret;
@@ -704,6 +752,7 @@ static int wt6670f_get_vbus_voltage(struct wt6670f_info *wt_chip)
 
 	return ret;
 }
+#endif
 
 static int wt6670f_get_firmware_version(struct wt6670f_info *wt_chip)
 {
