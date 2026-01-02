@@ -125,6 +125,49 @@ uint32_t g_proj_id = 0xffff;
 EXPORT_SYMBOL(g_proj_id);
 #endif
 
+/* [HXTP_FIX] Periodic Sensitivity Enforcer - AGGRESSIVE (2 seconds) */
+#define HX_ENFORCER_INTERVAL_MS 2000 /* 2 seconds */
+static struct delayed_work himax_enforcer_work;
+static struct workqueue_struct *himax_enforcer_wq;
+static bool enforcer_enabled = false;
+
+static void himax_enforcer_func(struct work_struct *work)
+{
+	if (!enforcer_enabled || !private_ts) {
+		return;
+	}
+
+	/* Skip if system is suspended */
+	if (atomic_read(&private_ts->suspend_mode)) {
+		goto reschedule;
+	}
+
+	/* Force Idle Mode OFF */
+	if (g_core_fp.fp_idle_mode)
+		g_core_fp.fp_idle_mode(1);
+
+	/* Force High Sensitivity */
+	if (g_core_fp.fp_set_HSEN_enable)
+		g_core_fp.fp_set_HSEN_enable(1, 0);
+
+	/* Force Game Mode ON - reduces latency, disables auto-idle */
+	if (g_core_fp.fp_set_game_mode)
+		g_core_fp.fp_set_game_mode(1);
+
+reschedule:
+	if (enforcer_enabled && himax_enforcer_wq) {
+		queue_delayed_work(himax_enforcer_wq, &himax_enforcer_work,
+			msecs_to_jiffies(HX_ENFORCER_INTERVAL_MS));
+	}
+}
+
+static void himax_enforcer_start(void)
+{
+	enforcer_enabled = true;
+	queue_delayed_work(himax_enforcer_wq, &himax_enforcer_work,
+		msecs_to_jiffies(HX_ENFORCER_INTERVAL_MS));
+}
+
 struct himax_ts_data *private_ts;
 EXPORT_SYMBOL(private_ts);
 
@@ -2485,12 +2528,23 @@ static void himax_report_all_leave_event(struct himax_ts_data *ts)
 {
 	int i = 0;
 
+	if (g_ts_dbg != 0)
+		I("%s: Entering, clearing all slots\n", __func__);
+
+	/*
+	 * FIX 1: CRITICAL MT Type B Protocol Fix for himax_report_all_leave_event()
+	 * PROBLEM: Original code sent ABS_MT_* events BEFORE calling input_mt_report_slot_state
+	 * This violates MT Type B protocol and causes "Received unexpected event" errors in InputReader
+	 * 
+	 * CORRECT MT Type B sequence:
+	 * 1. input_mt_slot() - select slot
+	 * 2. input_mt_report_slot_state(false) - mark slot as inactive FIRST
+	 * 3. (optional) clear abs values - NOT needed when slot already inactive
+	 */
 	for (i = 0; i < ts->nFinger_support; i++) {
 #if !defined(HX_PROTOCOL_A)
 		input_mt_slot(ts->input_dev, i);
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+		/* FIXED: Call state change FIRST, coordinates NOT needed for inactive slots */
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
 #endif
 	}
@@ -2527,7 +2581,13 @@ static void himax_point_report(struct himax_ts_data *ts)
 					g_target_report_data->p[i].w);
 			}
 #if !defined(HX_PROTOCOL_A)
+			/*
+			 * FIX 2: Correct MT Type B event order for active touches
+			 * CRITICAL: Must call input_mt_report_slot_state(true) BEFORE sending coordinates
+			 * This tells InputReader "this slot is now active" BEFORE we send position data
+			 */
 			input_mt_slot(ts->input_dev, i);
+			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 1);
 #else
 			input_report_key(ts->input_dev, BTN_TOUCH, 1);
 #endif
@@ -2551,20 +2611,22 @@ static void himax_point_report(struct himax_ts_data *ts)
 			//-OAK467,shenwenbin.wt,MOD,20211203,panel direction to 180
 			//+bug692121,shenwenbin.wt,MOD,20211014,update new firmware VER 1
 #if !defined(HX_PROTOCOL_A)
+			/* Keep track of last reported slot */
 			ts->last_slot = i;
-			input_mt_report_slot_state(ts->input_dev,
-					MT_TOOL_FINGER, 1);
 #else
 			input_mt_sync(ts->input_dev);
 #endif
+
+			if (g_ts_dbg != 0)
+				D("Reported: slot=%d, x=%d, y=%d, w=%d\n", i,
+					g_target_report_data->p[i].x,
+					g_target_report_data->p[i].y,
+					g_target_report_data->p[i].w);
 		} else {
+			/* Clear inactive slot - state change BEFORE clearing values */
 #if !defined(HX_PROTOCOL_A)
 			input_mt_slot(ts->input_dev, i);
-			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-			input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
-			input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
-			input_mt_report_slot_state(ts->input_dev,
-					MT_TOOL_FINGER, 0);
+			input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
 #endif
 		}
 	}
@@ -2608,11 +2670,10 @@ static void himax_point_leave(struct himax_ts_data *ts)
 	input_mt_sync(ts->input_dev);
 #endif
 #if !defined(HX_PROTOCOL_A)
+	/* FIX 3: Correct order for clearing all slots on finger leave */
 	for (i = 0; i < ts->nFinger_support; i++) {
 		input_mt_slot(ts->input_dev, i);
-		input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_WIDTH_MAJOR, 0);
-		input_report_abs(ts->input_dev, ABS_MT_PRESSURE, 0);
+		/* State change FIRST, coordinates not needed */
 		input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
 	}
 #endif
@@ -3404,6 +3465,7 @@ int himax_chip_common_init(void)
 	ts->SMWP_enable = 0;
 	ts->gesture_cust_en[0] = 1;	//OAK78,shenwenbin.wt,MOD,20211115,tuning double wakeup
 	pm_runtime_enable(&ts->spi->dev);	//OAK78,shenwenbin.wt,MOD,20211130,double wakeup sometime SPI not wake
+
 #if defined(KERNEL_VER_ABOVE_4_19)
 	ts->ts_SMWP_wake_lock =
 		wakeup_source_register(ts->dev, HIMAX_common_NAME);
@@ -3422,8 +3484,27 @@ int himax_chip_common_init(void)
 #endif
 
 #if defined(HX_HIGH_SENSE)
-	ts->HSEN_enable = 0;
+	ts->HSEN_enable = 1; /* [HXTP_FIX] Default to High Sensitivity */
 #endif
+
+	/* [HXTP_FIX] Apply initial sensitivity settings */
+	pr_info("[HXTP_FIX] INIT: Applying Idle-OFF, High Sensitivity, and Game Mode\n");
+	if (g_core_fp.fp_idle_mode)
+		g_core_fp.fp_idle_mode(1);
+	if (g_core_fp.fp_set_HSEN_enable)
+		g_core_fp.fp_set_HSEN_enable(1, 0);
+	if (g_core_fp.fp_set_game_mode)
+		g_core_fp.fp_set_game_mode(1);
+
+	/* [HXTP_FIX] Start Periodic Enforcer (every 2 seconds) */
+	himax_enforcer_wq = create_singlethread_workqueue("hx_enforcer");
+	if (himax_enforcer_wq) {
+		INIT_DELAYED_WORK(&himax_enforcer_work, himax_enforcer_func);
+		himax_enforcer_start();
+		pr_info("[HXTP_FIX] Periodic Enforcer started (every %dms)\n", HX_ENFORCER_INTERVAL_MS);
+	} else {
+		pr_err("[HXTP_FIX] Failed to create enforcer workqueue!\n");
+	}
 
 	if (himax_common_proc_init()) {
 		E(" %s: himax_common proc_init failed!\n", __func__);
