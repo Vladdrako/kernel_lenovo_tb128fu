@@ -63,7 +63,7 @@ extern uint8_t Double_WakeUp_Status(void);	//OAK78,shenwenbin.wt,MOD,20211115,tu
 
 /* [HXTP_FIX] DT2W debounce protection */
 static unsigned long last_dt2w_jiffies = 0;
-#define DT2W_DEBOUNCE_MS 500  /* Minimum time between DT2W events */
+#define DT2W_DEBOUNCE_MS 300  /* Minimum time between DT2W events */
 
 
 #define SUPPORT_FINGER_DATA_CHECKSUM 0x0F
@@ -1473,8 +1473,8 @@ static void himax_wake_event_report(void)
 		input_report_key(private_ts->input_dev, KEY_EVENT, 1);
 		input_sync(private_ts->input_dev);
 		
-		/* [HXTP_FIX] Add delay to prevent Android interpreting as long press */
-		msleep(100);
+		/* [HXTP_FIX] Short delay between press/release (20ms is enough) */
+		msleep(20);
 
 		/* Release the key */
 		input_report_key(private_ts->input_dev, KEY_EVENT, 0);
@@ -1808,18 +1808,20 @@ static int himax_ts_work_status(struct himax_ts_data *ts)
 	&& (ts->SMWP_enable)
 	&& (!hx_touch_data->diag_cmd)){
 	  if(!pm_runtime_enabled(&ts->spi->dev)){
+			/* [HXTP_FIX] Wake both input device AND SPI bus */
 			pm_wakeup_event(&ts->input_dev->dev, 5000);
+			pm_wakeup_event(&ts->spi->dev, 5000);
 			for( i = 0; i < 100;i++){
 				if(pm_runtime_enabled(&ts->spi->dev)){
-					I("CTP_SPI ready!waiting for %dms\n", i*10);
+					I("[HXTP_FIX] CTP_SPI ready after %dms\n", i*5);
 					break;
 				}
 
-				msleep(10);
+				msleep(5);
 			}
 
 			if(i >= 100)
-				E("Waiting for CTP_SPI ready Time out!(1000ms)\n");
+				E("[HXTP_FIX] CTP_SPI ready Time out!(500ms)\n");
 	  }else
 		I("CTP_SPI ready!\n");
 
