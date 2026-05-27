@@ -4,6 +4,9 @@ ifneq ($(filter y, $(CONFIG_KALLSYMS_ALL)),)
 	ccflags-y += -D__KERNEL_KALLSYMS_ALL_ENABLED__
 endif
 
+# Disable array-bounds warning for kernel 4.19 with newer Clang
+ccflags-y += -Wno-array-bounds
+
 # //+OAK78,shenwenbin.wt,MOD,20211115,improve ocp2138 driver for double wakeup
 # ifneq ($(filter y, $(CONFIG_FB)),)
 # 	ccflags-y += -DHX_CONFIG_FB

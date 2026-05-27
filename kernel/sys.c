@@ -1247,24 +1247,24 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
-	if ((!strncmp(current->comm, "netbpfload", 10) &&
-	    current->pid != netbpfload_pid) || 
-	    !strncmp(current->comm, "netd", 4)) {
-		// SAFETY: netd always starts after netbpfload
-		if (netbpfload_pid == 0)
-			netbpfload_pid = current->pid;
-		strcpy(tmp.release, "5.4.186");
-		pr_debug("fake uname: %s/%d release=%s\n",
-			 current->comm, current->pid, tmp.release);
-	}
 	up_read(&uts_sem);
+
+	if (!strncmp(current->comm, "netbpfload", 10) ||
+	    !strncmp(current->comm, "bpfloader", 9) ||
+	    !strncmp(current->comm, "netd", 4)) {
+		
+		strcpy(tmp.release, "5.4.186");
+	}
+
 	if (copy_to_user(name, &tmp, sizeof(tmp)))
 		return -EFAULT;
 
 	if (override_release(name->release, sizeof(name->release)))
 		return -EFAULT;
+
 	if (override_architecture(name))
 		return -EFAULT;
+
 	return 0;
 }
 
