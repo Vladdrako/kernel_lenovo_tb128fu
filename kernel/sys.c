@@ -1247,24 +1247,30 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
-	up_read(&uts_sem);
 
+	/* 
+	 * Спуфінг ядра для сумісності з eBPF в Android 16 QPR2.
+	 * УВАГА: Ми прибрали "init" (PID 1) та "system_server" з цього списку.
+	 * Обман init змушує його викликати несумісні з ядром 4.19 інтерфейси cgroups v2,
+	 * що призводить до миттєвого циклічного перезавантаження на початку бутанімації.
+	 */
 	if (!strncmp(current->comm, "netbpfload", 10) ||
 	    !strncmp(current->comm, "bpfloader", 9) ||
 	    !strncmp(current->comm, "netd", 4)) {
 		
-		strcpy(tmp.release, "5.4.186");
+		strcpy(tmp.release, "5.10.0-Grass-perf");
+		pr_debug("fake uname: %s/%d release=%s\n",
+			 current->comm, current->pid, tmp.release);
 	}
+	up_read(&uts_sem);
 
 	if (copy_to_user(name, &tmp, sizeof(tmp)))
 		return -EFAULT;
 
 	if (override_release(name->release, sizeof(name->release)))
 		return -EFAULT;
-
 	if (override_architecture(name))
 		return -EFAULT;
-
 	return 0;
 }
 
