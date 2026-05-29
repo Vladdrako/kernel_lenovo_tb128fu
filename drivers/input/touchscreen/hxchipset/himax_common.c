@@ -1807,6 +1807,10 @@ static int himax_ts_work_status(struct himax_ts_data *ts)
 	if (atomic_read(&ts->suspend_mode)
 	&& (ts->SMWP_enable)
 	&& (!hx_touch_data->diag_cmd)){
+	  /* [HXTP_FIX] Hold wakeup source BEFORE SPI wait to prevent
+	   * system from going back to suspend while we read gesture data */
+	  __pm_wakeup_event(ts->ts_SMWP_wake_lock, TS_WAKE_LOCK_TIMEOUT);
+
 	  if(!pm_runtime_enabled(&ts->spi->dev)){
 			/* [HXTP_FIX] Wake both input device AND SPI bus */
 			pm_wakeup_event(&ts->input_dev->dev, 5000);
@@ -3028,6 +3032,21 @@ void himax_ts_work(struct himax_ts_data *ts)
 		break;
 	case HX_REPORT_SMWP_EVENT:
 		ts_status = himax_ts_operation(ts, ts_path, ts_status);
+		/* [HXTP_FIX] If SPI read fails during SMWP gesture wake,
+		 * send KEY_POWER as fallback. The IRQ itself proves the touch
+		 * controller firmware detected a wake gesture. Double-tap
+		 * (gesture_cust_en[0]) is always enabled, so this is safe.
+		 * Without this, GET_TOUCH_FAIL triggers IC reset and the
+		 * gesture event is lost, requiring a second tap. */
+		if (ts_status == HX_TS_GET_DATA_FAIL) {
+			I("[HXTP_FIX] SMWP data read failed, sending KEY_POWER fallback\n");
+			input_report_key(ts->input_dev, KEY_POWER, 1);
+			input_sync(ts->input_dev);
+			msleep(20);
+			input_report_key(ts->input_dev, KEY_POWER, 0);
+			input_sync(ts->input_dev);
+			ts_status = HX_TS_NORMAL_END;
+		}
 		break;
 	case HX_REPORT_COORD_RAWDATA:
 		ts_status = himax_ts_operation(ts, ts_path, ts_status);
