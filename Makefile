@@ -723,6 +723,12 @@ else
 KBUILD_CFLAGS   += -O3
 endif
 
+ifdef CONFIG_ARCH_QCOM
+# Optimize for ARMv8-A instructions with Crypto/CRC support, but tune for the Cortex-A73 pipeline
+KBUILD_CFLAGS += -pipe -march=armv8-a+crc+crypto -mtune=cortex-a73
+KBUILD_AFLAGS += -pipe -march=armv8-a+crc+crypto -mtune=cortex-a73
+endif
+
 ifdef CONFIG_CC_WERROR
 KBUILD_CFLAGS  += -Werror
 endif
