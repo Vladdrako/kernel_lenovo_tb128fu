@@ -544,7 +544,7 @@ static int msm_config_cm_dll_phase(struct sdhci_host *host, u8 phase)
 	u32 config;
 	struct mmc_host *mmc = host->mmc;
 
-	pr_debug("%s: Enter %s\n", mmc_hostname(mmc), __func__);
+	// pr_debug("%s: Enter %s\n", mmc_hostname(mmc), __func__);
 	spin_lock_irqsave(&host->lock, flags);
 
 	config = readl_relaxed(host->ioaddr +
@@ -592,7 +592,7 @@ err_out:
 		mmc_hostname(mmc), __func__, phase);
 out:
 	spin_unlock_irqrestore(&host->lock, flags);
-	pr_debug("%s: Exit %s\n", mmc_hostname(mmc), __func__);
+	// pr_debug("%s: Exit %s\n", mmc_hostname(mmc), __func__);
 	return rc;
 }
 
@@ -1716,7 +1716,7 @@ out:
 void sdhci_bht_set_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 {
 	sdhci_writeb(host, 0xE, SDHCI_TIMEOUT_CONTROL);
-	pr_debug("BHT_MSG: set SDHCI_TIMEOUT_CONTROL to 0xE\n");
+	// pr_debug("BHT_MSG: set SDHCI_TIMEOUT_CONTROL to 0xE\n");
 }
 #endif
 //Add by ZhaoZiqiang for timeout controller register setting debug end
@@ -3516,9 +3516,9 @@ static void sdhci_msm_check_power_status(struct sdhci_host *host, u32 req_type)
 	u32 io_sig_sts = SWITCHABLE_SIGNALLING_VOL;
 
 	spin_lock_irqsave(&host->lock, flags);
-	pr_debug("%s: %s: request %d curr_pwr_state %x curr_io_level %x\n",
+	/*pr_debug("%s: %s: request %d curr_pwr_state %x curr_io_level %x\n",
 			mmc_hostname(host->mmc), __func__, req_type,
-			msm_host->curr_pwr_state, msm_host->curr_io_level);
+			msm_host->curr_pwr_state, msm_host->curr_io_level);*/
 	if (!msm_host->mci_removed)
 		io_sig_sts = sdhci_msm_readl_relaxed(host,
 				msm_host_offset->CORE_GENERICS);
