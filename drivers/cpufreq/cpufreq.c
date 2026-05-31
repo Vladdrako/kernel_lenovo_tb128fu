@@ -37,6 +37,37 @@
 
 static LIST_HEAD(cpufreq_policy_list);
 
+#define MAX_CLUSTERS 3
+
+struct cpumask_uint_kv {
+    cpumask_var_t key;
+    unsigned int value;
+};
+
+static struct cpumask_uint_kv cpumask_min_limit_store[MAX_CLUSTERS] __read_mostly;
+
+static void store_cpumask_min_limit(const cpumask_var_t key, const unsigned int value) {
+	int i;
+	for (i = 0; i < MAX_CLUSTERS; i++) {
+		if (cpumask_empty(cpumask_min_limit_store[i].key) || cpumask_equal(cpumask_min_limit_store[i].key, key)) {
+			cpumask_copy(cpumask_min_limit_store[i].key, key);
+			cpumask_min_limit_store[i].value = value;
+			return;
+		}
+	}
+	pr_err("cpumask_min_limit_store is full.\n");
+}
+
+static unsigned int get_cpumask_min_limit(const cpumask_var_t key) {
+	int i;
+	for (i = 0; i < MAX_CLUSTERS; i++) {
+		if (cpumask_equal(cpumask_min_limit_store[i].key, key)) {
+		    return cpumask_min_limit_store[i].value;
+		}
+	}
+	return INT_MAX;
+}
+
 static inline bool policy_is_inactive(struct cpufreq_policy *policy)
 {
 	return cpumask_empty(policy->cpus);
@@ -663,6 +694,27 @@ show_one(cpuinfo_transition_latency, cpuinfo.transition_latency);
 show_one(scaling_min_freq, min);
 show_one(scaling_max_freq, max);
 
+static ssize_t show_scaling_min_freq_limit(struct cpufreq_policy *policy, char *buf)
+{
+	unsigned int val = get_cpumask_min_limit(policy->related_cpus);
+
+	return sprintf(buf, "%u\n", val);
+}
+
+static ssize_t store_scaling_min_freq_limit(struct cpufreq_policy *policy, const char *buf, size_t count)
+{
+	int ret;
+	unsigned int val;
+
+	ret = sscanf(buf, "%u", &val);
+	if (ret != 1)
+		return -EINVAL;
+
+	store_cpumask_min_limit(policy->related_cpus, val);
+	cpufreq_update_policy(policy->cpu);
+	return count;
+}
+
 unsigned int cpuinfo_max_freq_cached;
 
 static bool should_use_cached_freq(int cpu)
@@ -919,6 +971,7 @@ cpufreq_freq_attr_rw(scaling_min_freq);
 cpufreq_freq_attr_rw(scaling_max_freq);
 cpufreq_freq_attr_rw(scaling_governor);
 cpufreq_freq_attr_rw(scaling_setspeed);
+cpufreq_freq_attr_rw(scaling_min_freq_limit);
 
 static struct attribute *default_attrs[] = {
 	&cpuinfo_min_freq.attr,
@@ -926,6 +979,7 @@ static struct attribute *default_attrs[] = {
 	&cpuinfo_transition_latency.attr,
 	&scaling_min_freq.attr,
 	&scaling_max_freq.attr,
+	&scaling_min_freq_limit.attr,
 	&affected_cpus.attr,
 	&related_cpus.attr,
 	&scaling_governor.attr,
@@ -2262,6 +2316,8 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	if (ret)
 		return ret;
 
+	new_policy->min = min(new_policy->min, get_cpumask_min_limit(policy->related_cpus));
+
 	/* adjust if necessary - all reasons */
 	blocking_notifier_call_chain(&cpufreq_policy_notifier_list,
 			CPUFREQ_ADJUST, new_policy);
@@ -2642,8 +2698,19 @@ EXPORT_SYMBOL(cpufreq_global_kobject);
 
 static int __init cpufreq_core_init(void)
 {
+	int i;
+
 	if (cpufreq_disabled())
 		return -ENODEV;
+
+	for (i = 0; i < MAX_CLUSTERS; i++) {
+		if (!alloc_cpumask_var(&cpumask_min_limit_store[i].key, GFP_KERNEL)) {
+			pr_err("Failed to allocate cpumask_min_limit_store[%d].key\n", i);
+			// We don't fail here completely to avoid bricking, but report the error
+			return -ENOMEM;
+		}
+		cpumask_clear(cpumask_min_limit_store[i].key);
+	}
 
 	cpufreq_global_kobject = kobject_create_and_add("cpufreq", &cpu_subsys.dev_root->kobj);
 	BUG_ON(!cpufreq_global_kobject);
