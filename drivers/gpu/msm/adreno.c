@@ -2818,6 +2818,55 @@ static int adreno_prop_gaming_bin(struct kgsl_device *device,
 	return -EINVAL;
 }
 
+static int adreno_prop_vk_device_id(struct kgsl_device *device,
+		struct kgsl_device_getproperty *param)
+{
+	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
+	u32 vk_dev_id = adreno_get_vk_device_id(device);
+
+	if (vk_dev_id == 0 && adreno_dev) {
+		vk_dev_id = adreno_dev->chipid;
+	}
+
+	/* Option 1: Userspace expects a classic 4-byte u32 ID (like your current libgsl.so) */
+	if (param->sizebytes == sizeof(u32)) {
+		//pr_debug("Adreno-Debug: Legacy 4-byte Vulkan ID request. ID = 0x%X\n", vk_dev_id);
+		
+		if (copy_to_user(param->value, &vk_dev_id, sizeof(vk_dev_id)))
+			return -EFAULT;
+			
+		/* Size remains 4, userspace is satisfied */
+		return 0;
+	}
+
+	/* Option 2: Userspace expects a modern 32-byte UUID (just in case for the future) */
+	if (param->sizebytes >= 32) {
+		struct kgsl_vk_device_id {
+			unsigned char device_uuid[16];
+			unsigned char driver_uuid[16];
+		} vk_id;
+
+		memset(&vk_id, 0, sizeof(vk_id));
+		memcpy(&vk_id.device_uuid, &vk_dev_id, sizeof(vk_dev_id));
+		
+		vk_id.driver_uuid[0] = 'A';
+		vk_id.driver_uuid[1] = 'D';
+		vk_id.driver_uuid[2] = 'R';
+
+		//pr_debug("Adreno-Debug: Modern 32-byte Vulkan UUID request. ID = 0x%X\n", vk_dev_id);
+
+		if (copy_to_user(param->value, &vk_id, sizeof(vk_id)))
+			return -EFAULT;
+
+		param->sizebytes = sizeof(vk_id);
+		return 0;
+	}
+
+	/* If something completely incomprehensible has arrived */
+	//pr_debug("Adreno-Debug: Invalid Vulkan ID request size: %u\n", param->sizebytes);
+	return -EINVAL;
+}
+
 static int adreno_prop_u32(struct kgsl_device *device,
 		struct kgsl_device_getproperty *param)
 {
@@ -2836,8 +2885,6 @@ static int adreno_prop_u32(struct kgsl_device *device,
 		val = adreno_support_64bit(adreno_dev) ? 48 : 32;
 	else if (param->type == KGSL_PROP_SPEED_BIN)
 		val = adreno_dev->speed_bin;
-	else if (param->type == KGSL_PROP_VK_DEVICE_ID)
-		val = adreno_get_vk_device_id(device);
 
 	return copy_prop(param, &val, sizeof(val));
 }
@@ -2848,6 +2895,7 @@ static const struct {
 		struct kgsl_device_getproperty *param);
 } adreno_property_funcs[] = {
 	{ KGSL_PROP_DEVICE_INFO, adreno_prop_device_info },
+	{ KGSL_PROP_VK_DEVICE_ID, adreno_prop_vk_device_id },
 	{ KGSL_PROP_DEVICE_SHADOW, adreno_prop_device_shadow },
 	{ KGSL_PROP_DEVICE_QDSS_STM, adreno_prop_device_qdss_stm },
 	{ KGSL_PROP_DEVICE_QTIMER, adreno_prop_device_qtimer },
@@ -2862,7 +2910,6 @@ static const struct {
 	{ KGSL_PROP_SPEED_BIN, adreno_prop_u32 },
 	{ KGSL_PROP_GAMING_BIN, adreno_prop_gaming_bin },
 	{ KGSL_PROP_GPU_MODEL, adreno_prop_gpu_model},
-	{ KGSL_PROP_VK_DEVICE_ID, adreno_prop_u32},
 };
 
 static int adreno_getproperty(struct kgsl_device *device,

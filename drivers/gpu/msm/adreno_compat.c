@@ -15,6 +15,56 @@ int adreno_getproperty_compat(struct kgsl_device *device,
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
 	switch (param->type) {
+	case KGSL_PROP_VK_DEVICE_ID:
+		{
+			u32 vk_dev_id = 0;
+			void __user *compat_value = compat_ptr((unsigned long)param->value);
+
+			if (adreno_dev) {
+				vk_dev_id = adreno_dev->chipid;
+			}
+
+			/* Check size: 4-byte classic ID */
+			if (param->sizebytes == sizeof(u32)) {
+				//pr_debug("Adreno-Debug: [COMPAT] 4-byte Vulkan ID request. ID = 0x%X\n", vk_dev_id);
+				
+				if (copy_to_user(compat_value, &vk_dev_id, sizeof(vk_dev_id))) {
+					status = -EFAULT;
+					break;
+				}
+				status = 0;
+				break;
+			}
+
+			/* For new 32-byte UUIDs */
+			if (param->sizebytes >= 32) {
+				struct {
+					unsigned char device_uuid[16];
+					unsigned char driver_uuid[16];
+				} vk_id;
+
+				memset(&vk_id, 0, sizeof(vk_id));
+				memcpy(&vk_id.device_uuid, &vk_dev_id, sizeof(vk_dev_id));
+				
+				vk_id.driver_uuid[0] = 'A';
+				vk_id.driver_uuid[1] = 'D';
+				vk_id.driver_uuid[2] = 'R';
+
+				//pr_debug("Adreno-Debug: [COMPAT] 32-byte Vulkan UUID request. ID = 0x%X\n", vk_dev_id);
+
+				if (copy_to_user(compat_value, &vk_id, sizeof(vk_id))) {
+					status = -EFAULT;
+					break;
+				}
+				param->sizebytes = sizeof(vk_id);
+				status = 0;
+				break;
+			}
+
+			//pr_debug("Adreno-Debug: [COMPAT] Invalid Vulkan ID size: %u\n", param->sizebytes);
+			status = -EINVAL;
+		}
+		break;
 	case KGSL_PROP_DEVICE_INFO:
 		{
 			struct kgsl_devinfo_compat devinfo;
