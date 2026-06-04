@@ -138,6 +138,13 @@ static struct workqueue_struct *cgroup_offline_wq;
 static struct workqueue_struct *cgroup_release_wq;
 static struct workqueue_struct *cgroup_free_wq;
 
+/*
+ * cgroup_destroy_wq is used to queue cgroup destruction work items so that
+ * they don't end up filling up max_active of system_wq which may lead to
+ * deadlock.
+ */
+struct workqueue_struct *cgroup_destroy_wq;
+
 /* generate an array of cgroup subsystem pointers */
 #define SUBSYS(_x) [_x ## _cgrp_id] = &_x ## _cgrp_subsys,
 struct cgroup_subsys *cgroup_subsys[] = {
@@ -5901,6 +5908,9 @@ static int __init cgroup_wq_init(void)
 
 	cgroup_free_wq = alloc_workqueue("cgroup_free", 0, 1);
 	BUG_ON(!cgroup_free_wq);
+
+	cgroup_destroy_wq = alloc_workqueue("cgroup_destroy", 0, 0);
+	BUG_ON(!cgroup_destroy_wq);
 	return 0;
 }
 core_initcall(cgroup_wq_init);
