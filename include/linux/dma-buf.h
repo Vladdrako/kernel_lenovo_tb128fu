@@ -33,6 +33,9 @@
 #include <linux/dma-fence.h>
 #include <linux/dma-buf-ref.h>
 #include <linux/wait.h>
+#ifndef __GENKSYMS__
+#include <linux/refcount.h>
+#endif
 
 struct device;
 struct dma_buf;
@@ -585,6 +588,22 @@ void *dma_buf_vmap(struct dma_buf *);
 void dma_buf_vunmap(struct dma_buf *, void *vaddr);
 int dma_buf_get_flags(struct dma_buf *dma_buf, unsigned long *flags);
 int dma_buf_get_uuid(struct dma_buf *dma_buf, uuid_t *uuid);
+
+/**
+ * struct task_dma_buf_record - Holds the number of (VMA and FD) references to a
+ * dmabuf by a collection of tasks that share both mm_struct and files_struct.
+ * This is the list entry type for @task_dma_buf_info dmabufs list.
+ *
+ * @node: Stores the list this record is on.
+ * @dmabuf: The dmabuf this record is for.
+ * @refcnt: The number of VMAs and FDs that reference @dmabuf by the tasks that
+ *          share this record.
+ */
+struct task_dma_buf_record {
+	struct list_head node;
+	struct dma_buf *dmabuf;
+	unsigned long refcnt;
+};
 
 /**
  * dma_buf_set_destructor - set the dma-buf's destructor

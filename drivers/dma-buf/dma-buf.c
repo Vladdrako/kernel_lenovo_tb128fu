@@ -179,6 +179,123 @@ static struct file_system_type dma_buf_fs_type = {
 	.kill_sb = kill_anon_super,
 };
 
+struct task_dma_buf_record_preload {
+	size_t size;
+	struct list_head list;
+};
+
+static DEFINE_PER_CPU(struct task_dma_buf_record_preload, dmabuf_rec_reloads);
+
+static struct kmem_cache *task_dmabuf_record_cachep;
+
+static void __init init_task_dmabuf_record_pool(void)
+{
+	int cpu;
+
+	task_dmabuf_record_cachep = kmem_cache_create("task_dmabuf_record",
+			sizeof(struct task_dma_buf_record), 0,
+			SLAB_PANIC | SLAB_ACCOUNT, NULL);
+
+	for_each_possible_cpu(cpu) {
+		struct task_dma_buf_record_preload *preload;
+
+		preload = &per_cpu(dmabuf_rec_reloads, cpu);
+		INIT_LIST_HEAD(&preload->list);
+		preload->size = 0;
+	}
+}
+
+/*
+ * Load up this CPU's task_dma_buf_record_preload list with requested number of
+ * records. On success, returns true, with preemption disabled. On error,
+ * return false with preemption not disabled.
+ */
+static bool task_dmabuf_records_preload(size_t count)
+{
+	struct task_dma_buf_record_preload *preload;
+
+	preempt_disable();
+	preload = this_cpu_ptr(&dmabuf_rec_reloads);
+	while (preload->size < count) {
+		struct task_dma_buf_record *rec;
+
+		preempt_enable();
+		rec = kmem_cache_alloc(task_dmabuf_record_cachep, GFP_KERNEL);
+		if (!rec)
+			return false;
+
+		preempt_disable();
+		preload = this_cpu_ptr(&dmabuf_rec_reloads);
+		if (preload->size < count) {
+			list_add(&rec->node, &preload->list);
+			preload->size++;
+		} else {
+			kmem_cache_free(task_dmabuf_record_cachep, rec);
+		}
+	}
+
+	return true;
+}
+
+static inline void task_dmabuf_records_preload_end(void)
+{
+	preempt_enable();
+}
+
+static struct task_dma_buf_record *alloc_task_dmabuf_record(void)
+{
+	struct task_dma_buf_record_preload *preload;
+	struct task_dma_buf_record *rec = NULL;
+
+	preload = this_cpu_ptr(&dmabuf_rec_reloads);
+	if (preload->size > 0) {
+		rec = list_first_entry(&preload->list, typeof(*rec), node);
+		list_del(&rec->node);
+		preload->size--;
+	}
+
+	return rec;
+}
+
+#define MAX_PCP_POOL_SIZE 32
+
+static void free_task_dmabuf_record(struct task_dma_buf_record *rec)
+{
+	struct task_dma_buf_record_preload *preload;
+
+	preempt_disable();
+	preload = this_cpu_ptr(&dmabuf_rec_reloads);
+	if (preload->size < MAX_PCP_POOL_SIZE) {
+		list_add(&rec->node, &preload->list);
+		preload->size++;
+	} else {
+		kmem_cache_free(task_dmabuf_record_cachep, rec);
+	}
+	preempt_enable();
+}
+
+static void trim_task_dmabuf_records_locked(void)
+{
+	struct task_dma_buf_record_preload *preload;
+
+	preload = this_cpu_ptr(&dmabuf_rec_reloads);
+	while (preload->size > MAX_PCP_POOL_SIZE) {
+		struct task_dma_buf_record *rec;
+
+		rec = list_first_entry(&preload->list, typeof(*rec), node);
+		list_del(&rec->node);
+		preload->size--;
+		kmem_cache_free(task_dmabuf_record_cachep, rec);
+	}
+}
+
+static void trim_task_dmabuf_records(void)
+{
+	preempt_disable();
+	trim_task_dmabuf_records_locked();
+	preempt_enable();
+}
+
 static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
 {
 	struct dma_buf *dmabuf;
@@ -1615,6 +1732,7 @@ static int __init dma_buf_init(void)
 
 	mutex_init(&db_list.lock);
 	INIT_LIST_HEAD(&db_list.head);
+	init_task_dmabuf_record_pool();
 	dma_buf_init_debugfs();
 	return 0;
 }
