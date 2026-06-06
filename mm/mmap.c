@@ -28,6 +28,7 @@
 #include <linux/shmem_fs.h>
 #include <linux/profile.h>
 #include <linux/export.h>
+#include <linux/dma-buf.h>
 #include <linux/mount.h>
 #include <linux/mempolicy.h>
 #include <linux/rmap.h>
@@ -1729,6 +1730,17 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 	}
 
 	/*
+	 * Account dmabuf mapping to current task
+	 */
+	if (file && is_dma_buf_file(file)) {
+		int acct_err = dma_buf_account_task(file->private_data, current);
+
+		if (acct_err)
+			pr_err("dmabuf accounting failed during mmap operation, err %d\n",
+			       acct_err);
+	}
+
+	/*
 	 * Can we just expand an old mapping?
 	 */
 	vma = vma_merge(mm, prev, addr, addr + len, vm_flags,
@@ -1772,8 +1784,11 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 		 */
 		vma->vm_file = get_file(file);
 		error = call_mmap(file, vma);
-		if (error)
+		if (error) {
+			if (is_dma_buf_file(file))
+				dma_buf_unaccount_task(file->private_data, current);
 			goto unmap_and_free_vma;
+		}
 
 		/* Can addr have changed??
 		 *
@@ -1788,8 +1803,11 @@ unsigned long mmap_region(struct file *file, unsigned long addr,
 		vm_flags = vma->vm_flags;
 	} else if (vm_flags & VM_SHARED) {
 		error = shmem_zero_setup(vma);
-		if (error)
+		if (error) {
+			if (file && is_dma_buf_file(file))
+				dma_buf_unaccount_task(file->private_data, current);
 			goto free_vma;
+		}
 	} else {
 		vma_set_anonymous(vma);
 	}

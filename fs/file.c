@@ -20,6 +20,7 @@
 #include <linux/spinlock.h>
 #include <linux/rcupdate.h>
 #include <linux/close_range.h>
+#include <linux/dma-buf.h>
 
 unsigned int sysctl_nr_open __read_mostly = 1024*1024;
 unsigned int sysctl_nr_open_min = BITS_PER_LONG;
@@ -643,6 +644,14 @@ void __fd_install(struct files_struct *files, unsigned int fd,
 
 void fd_install(unsigned int fd, struct file *file)
 {
+	if (is_dma_buf_file(file)) {
+		int acct_err = dma_buf_account_task(file->private_data, current);
+
+		if (acct_err)
+			pr_err("dmabuf accounting failed during fd_install operation, err %d\n",
+			       acct_err);
+	}
+
 	__fd_install(current->files, fd, file);
 }
 

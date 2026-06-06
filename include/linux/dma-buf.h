@@ -606,6 +606,28 @@ struct task_dma_buf_record {
 };
 
 /**
+ * struct task_dma_buf_info - Holds a RSS counter, and a list of dmabufs for all
+ * tasks that share both mm_struct and files_struct.
+ *
+ * @rss: The sum of all dmabuf memory referenced by the tasks via memory
+ *       mappings or file descriptors in bytes. Buffers referenced more than
+ *       once by the process (multiple mmaps, multiple FDs, or any combination
+ *       of both mmaps and FDs) only cause the buffer to be accounted to the
+ *       process once. Partial mappings cause the full size of the buffer to be
+ *       accounted, regardless of the size of the mapping.
+ * @refcnt: The number of tasks sharing this struct.
+ * @lock: Lock protecting writes for @rss, and reads/writes for @dmabufs.
+ * @dmabufs: List of all dmabufs referenced by the tasks.
+ */
+struct task_dma_buf_info {
+	unsigned int rss;
+	refcount_t refcnt;
+	spinlock_t lock;
+	struct list_head dmabufs;
+	size_t dmabuf_count;
+};
+
+/**
  * dma_buf_set_destructor - set the dma-buf's destructor
  * @dmabuf:		[in]	pointer to dma-buf
  * @dma_buf_destructor	[in]	the destructor function
@@ -618,5 +640,27 @@ static inline void dma_buf_set_destructor(struct dma_buf *dmabuf,
 	dmabuf->dtor = dtor;
 	dmabuf->dtor_data = dtor_data;
 }
+
+int is_dma_buf_file(struct file *file);
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+
+int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task);
+void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task);
+int copy_dmabuf_info(u64 clone_flags, struct task_struct *task);
+void put_dmabuf_info(struct task_struct *task);
+
+#else /* CONFIG_DMA_SHARED_BUFFER */
+
+static inline int is_dma_buf_file(struct file *file) { return 0; }
+static inline int dma_buf_account_task(struct dma_buf *dmabuf,
+				       struct task_struct *task) { return 0; }
+static inline void dma_buf_unaccount_task(struct dma_buf *dmabuf,
+					  struct task_struct *task) {}
+static inline int copy_dmabuf_info(u64 clone_flags,
+				   struct task_struct *task) { return 0; }
+static inline void put_dmabuf_info(struct task_struct *task) {}
+
+#endif /* CONFIG_DMA_SHARED_BUFFER */
 
 #endif /* __DMA_BUF_H__ */

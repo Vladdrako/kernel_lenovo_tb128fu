@@ -189,6 +189,7 @@ struct task_struct init_task
 #ifdef CONFIG_SECURITY
 	.security	= NULL,
 #endif
+	.dmabuf_info = NULL,
 };
 EXPORT_SYMBOL(init_task);
 

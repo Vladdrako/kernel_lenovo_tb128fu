@@ -28,6 +28,7 @@
 #include <linux/unistd.h>
 #include <linux/module.h>
 #include <linux/vmalloc.h>
+#include <linux/dma-buf.h>
 #include <linux/completion.h>
 #include <linux/personality.h>
 #include <linux/mempolicy.h>
@@ -696,6 +697,7 @@ void __put_task_struct(struct task_struct *tsk)
 	WARN_ON(refcount_read(&tsk->usage));
 	WARN_ON(tsk == current);
 
+	put_dmabuf_info(tsk);
 	cgroup_free(tsk);
 	task_numa_free(tsk, true);
 	security_task_free(tsk);
@@ -1929,6 +1931,9 @@ static __latent_entropy struct task_struct *copy_process(
 	p->io_context = NULL;
 	audit_set_context(p, NULL);
 	cgroup_fork(p);
+	retval = copy_dmabuf_info(clone_flags, p);
+	if (retval)
+		goto bad_fork_cleanup_threadgroup_lock;
 #ifdef CONFIG_NUMA
 	p->mempolicy = mpol_dup(p->mempolicy);
 	if (IS_ERR(p->mempolicy)) {
