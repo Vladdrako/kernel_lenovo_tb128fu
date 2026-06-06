@@ -615,12 +615,15 @@ struct task_dma_buf_record {
  *       of both mmaps and FDs) only cause the buffer to be accounted to the
  *       process once. Partial mappings cause the full size of the buffer to be
  *       accounted, regardless of the size of the mapping.
+ * @rss_hwm: The high watermark of @rss. This is the maximum value @rss has ever
+ *           reached for the task.
  * @refcnt: The number of tasks sharing this struct.
  * @lock: Lock protecting writes for @rss, and reads/writes for @dmabufs.
  * @dmabufs: List of all dmabufs referenced by the tasks.
  */
 struct task_dma_buf_info {
 	unsigned int rss;
+	unsigned int rss_hwm;
 	refcount_t refcnt;
 	spinlock_t lock;
 	struct list_head dmabufs;

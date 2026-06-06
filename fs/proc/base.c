@@ -3324,6 +3324,17 @@ static int proc_dmabuf_rss_show(struct seq_file *m, struct pid_namespace *ns,
 
 	return 0;
 }
+
+static int proc_dmabuf_rss_hwm_show(struct seq_file *m, struct pid_namespace *ns,
+		     struct pid *pid, struct task_struct *task)
+{
+	if (task->dmabuf_info)
+		seq_printf(m, "%u\n", READ_ONCE(task->dmabuf_info->rss_hwm));
+	else
+		seq_puts(m, "0\n");
+
+	return 0;
+}
 #endif
 
 static const struct file_operations proc_uid_map_operations = {
@@ -3444,6 +3455,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("limits",	  S_IRUGO, proc_pid_limits),
 #ifdef CONFIG_DMA_SHARED_BUFFER
 	ONE("dmabuf_rss", 0444, proc_dmabuf_rss_show),
+	ONE("dmabuf_rss_hwm", 0444, proc_dmabuf_rss_hwm_show),
 #endif
 #ifdef CONFIG_SMP
 	REG("sched_wake_up_idle", 00644, proc_pid_sched_wake_up_idle_operations),
