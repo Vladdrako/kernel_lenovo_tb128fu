@@ -11,6 +11,7 @@
 #include <linux/mm.h>
 #include <linux/audit.h>
 #include <linux/scs.h>
+#include <linux/dma-buf.h>
 
 #include <linux/pgtable.h>
 #include <linux/uaccess.h>

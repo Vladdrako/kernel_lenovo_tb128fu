@@ -2275,8 +2275,8 @@ bad_fork_cleanup_policy:
 	free_task_load_ptrs(p);
 #ifdef CONFIG_NUMA
 	mpol_put(p->mempolicy);
-bad_fork_cleanup_threadgroup_lock:
 #endif
+bad_fork_cleanup_threadgroup_lock:
 	delayacct_tsk_free(p);
 bad_fork_cleanup_count:
 	atomic_dec(&p->cred->user->processes);

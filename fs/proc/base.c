@@ -3313,41 +3313,6 @@ static int proc_projid_map_open(struct inode *inode, struct file *file)
 	return proc_id_map_open(inode, file, &proc_projid_seq_operations);
 }
 
-#ifdef CONFIG_DMA_SHARED_BUFFER
-static int proc_dmabuf_rss_show(struct seq_file *m, struct pid_namespace *ns,
-		     struct pid *pid, struct task_struct *task)
-{
-	if (task->dmabuf_info)
-		seq_printf(m, "%u\n", READ_ONCE(task->dmabuf_info->rss));
-	else
-		seq_puts(m, "0\n");
-
-	return 0;
-}
-
-static int proc_dmabuf_rss_hwm_show(struct seq_file *m, struct pid_namespace *ns,
-		     struct pid *pid, struct task_struct *task)
-{
-	if (task->dmabuf_info)
-		seq_printf(m, "%u\n", READ_ONCE(task->dmabuf_info->rss_hwm));
-	else
-		seq_puts(m, "0\n");
-
-	return 0;
-}
-
-static int proc_dmabuf_pss_show(struct seq_file *m, struct pid_namespace *ns,
-		     struct pid *pid, struct task_struct *task)
-{
-	if (task->dmabuf_info)
-		seq_printf(m, "%u\n", READ_ONCE(task->dmabuf_info->pss));
-	else
-		seq_puts(m, "0\n");
-
-	return 0;
-}
-#endif
-
 static const struct file_operations proc_uid_map_operations = {
 	.open		= proc_uid_map_open,
 	.write		= proc_uid_map_write,
@@ -3423,6 +3388,88 @@ static const struct file_operations proc_setgroups_operations = {
 	.release	= proc_setgroups_release,
 };
 #endif /* CONFIG_USER_NS */
+
+#ifdef CONFIG_DMA_SHARED_BUFFER
+static int proc_dmabuf_rss_show(struct seq_file *m, struct pid_namespace *ns,
+		     struct pid *pid, struct task_struct *task)
+{
+	struct files_struct *files;
+	unsigned long total_rss = 0;
+	unsigned int fd;
+
+	files = get_files_struct(task);
+	if (files) {
+		struct fdtable *fdt;
+		
+		spin_lock(&files->file_lock);
+		fdt = files_fdtable(files);
+		
+		for (fd = 0; fd < fdt->max_fds; fd++) {
+			struct file *file = fdt->fd[fd];
+			
+			if (!file)
+				continue;
+				
+			if (is_dma_buf_file(file)) {
+				struct dma_buf *dmabuf = file->private_data;
+				if (dmabuf) {
+					total_rss += dmabuf->size;
+				}
+			}
+		}
+		spin_unlock(&files->file_lock);
+		put_files_struct(files);
+	}
+
+	seq_printf(m, "%lu\n", total_rss);
+	return 0;
+}
+
+static int proc_dmabuf_rss_hwm_show(struct seq_file *m, struct pid_namespace *ns,
+		     struct pid *pid, struct task_struct *task)
+{
+	return proc_dmabuf_rss_show(m, ns, pid, task);
+}
+
+static int proc_dmabuf_pss_show(struct seq_file *m, struct pid_namespace *ns,
+		     struct pid *pid, struct task_struct *task)
+{
+	struct files_struct *files;
+	unsigned long total_pss = 0;
+	unsigned int fd;
+
+	files = get_files_struct(task);
+	if (files) {
+		struct fdtable *fdt;
+		
+		spin_lock(&files->file_lock);
+		fdt = files_fdtable(files);
+		
+		for (fd = 0; fd < fdt->max_fds; fd++) {
+			struct file *file = fdt->fd[fd];
+			
+			if (!file)
+				continue;
+				
+			if (is_dma_buf_file(file)) {
+				struct dma_buf *dmabuf = file->private_data;
+				if (dmabuf) {
+					unsigned long ref_count = atomic_long_read(&file->f_count);
+					if (ref_count > 0)
+						total_pss += dmabuf->size / ref_count;
+					else
+						total_pss += dmabuf->size;
+				}
+			}
+		}
+		spin_unlock(&files->file_lock);
+		put_files_struct(files);
+	}
+
+	seq_printf(m, "%lu\n", total_pss);
+	return 0;
+}
+#endif /* CONFIG_DMA_SHARED_BUFFER */
 
 static int proc_pid_personality(struct seq_file *m, struct pid_namespace *ns,
 				struct pid *pid, struct task_struct *task)

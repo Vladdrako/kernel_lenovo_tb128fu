@@ -647,9 +647,11 @@ void fd_install(unsigned int fd, struct file *file)
 	if (is_dma_buf_file(file)) {
 		int acct_err = dma_buf_account_task(file->private_data, current);
 
-		if (acct_err)
+		if (acct_err) {
 			pr_err("dmabuf accounting failed during fd_install operation, err %d\n",
 			       acct_err);
+			/* fd_install cannot fail, so we continue despite accounting error */
+		}
 	}
 
 	__fd_install(current->files, fd, file);

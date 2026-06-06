@@ -28,7 +28,6 @@
 #include <linux/signal_types.h>
 #include <linux/mm_types_task.h>
 #include <linux/mm_event.h>
-#include <linux/dma-buf.h>
 #include <linux/task_io_accounting.h>
 #include <linux/rseq.h>
 #include <linux/android_kabi.h>
@@ -42,6 +41,7 @@ struct cfs_rq;
 struct fs_struct;
 struct futex_pi_state;
 struct io_context;
+struct task_dma_buf_info;
 struct mempolicy;
 struct nameidata;
 struct nsproxy;

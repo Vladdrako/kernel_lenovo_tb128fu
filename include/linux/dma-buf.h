@@ -648,10 +648,9 @@ static inline void dma_buf_set_destructor(struct dma_buf *dmabuf,
 	dmabuf->dtor_data = dtor_data;
 }
 
-int is_dma_buf_file(struct file *file);
-
 #ifdef CONFIG_DMA_SHARED_BUFFER
 
+int is_dma_buf_file(struct file *file);
 int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task);
 void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task);
 int copy_dmabuf_info(u64 clone_flags, struct task_struct *task);

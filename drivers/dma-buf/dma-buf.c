@@ -45,7 +45,7 @@
 #include <uapi/linux/dma-buf.h>
 #include <uapi/linux/magic.h>
 
-static inline int is_dma_buf_file(struct file *);
+int is_dma_buf_file(struct file *);
 
 struct dma_buf_list {
 	struct list_head head;
@@ -179,151 +179,12 @@ static struct file_system_type dma_buf_fs_type = {
 	.kill_sb = kill_anon_super,
 };
 
-struct task_dma_buf_record_preload {
-	size_t size;
-	struct list_head list;
-};
-
-static DEFINE_PER_CPU(struct task_dma_buf_record_preload, dmabuf_rec_reloads);
-
-static struct kmem_cache *task_dmabuf_record_cachep;
-
-static void __init init_task_dmabuf_record_pool(void)
-{
-	int cpu;
-
-	task_dmabuf_record_cachep = kmem_cache_create("task_dmabuf_record",
-			sizeof(struct task_dma_buf_record), 0,
-			SLAB_PANIC | SLAB_ACCOUNT, NULL);
-
-	for_each_possible_cpu(cpu) {
-		struct task_dma_buf_record_preload *preload;
-
-		preload = &per_cpu(dmabuf_rec_reloads, cpu);
-		INIT_LIST_HEAD(&preload->list);
-		preload->size = 0;
-	}
-}
-
 /*
  * Load up this CPU's task_dma_buf_record_preload list with requested number of
  * records. On success, returns true, with preemption disabled. On error,
  * return false with preemption not disabled.
  */
-static bool task_dmabuf_records_preload(size_t count)
-{
-	struct task_dma_buf_record_preload *preload;
-
-	preempt_disable();
-	preload = this_cpu_ptr(&dmabuf_rec_reloads);
-	while (preload->size < count) {
-		struct task_dma_buf_record *rec;
-
-		preempt_enable();
-		rec = kmem_cache_alloc(task_dmabuf_record_cachep, GFP_KERNEL);
-		if (!rec)
-			return false;
-
-		preempt_disable();
-		preload = this_cpu_ptr(&dmabuf_rec_reloads);
-		if (preload->size < count) {
-			list_add(&rec->node, &preload->list);
-			preload->size++;
-		} else {
-			kmem_cache_free(task_dmabuf_record_cachep, rec);
-		}
-	}
-
-	return true;
-}
-
-static inline void task_dmabuf_records_preload_end(void)
-{
-	preempt_enable();
-}
-
-static struct task_dma_buf_record *alloc_task_dmabuf_record(void)
-{
-	struct task_dma_buf_record_preload *preload;
-	struct task_dma_buf_record *rec = NULL;
-
-	preload = this_cpu_ptr(&dmabuf_rec_reloads);
-	if (preload->size > 0) {
-		rec = list_first_entry(&preload->list, typeof(*rec), node);
-		list_del(&rec->node);
-		preload->size--;
-	}
-
-	return rec;
-}
-
-#define MAX_PCP_POOL_SIZE 32
-
-static void free_task_dmabuf_record(struct task_dma_buf_record *rec)
-{
-	struct task_dma_buf_record_preload *preload;
-
-	preempt_disable();
-	preload = this_cpu_ptr(&dmabuf_rec_reloads);
-	if (preload->size < MAX_PCP_POOL_SIZE) {
-		list_add(&rec->node, &preload->list);
-		preload->size++;
-	} else {
-		kmem_cache_free(task_dmabuf_record_cachep, rec);
-	}
-	preempt_enable();
-}
-
-static void trim_task_dmabuf_records_locked(void)
-{
-	struct task_dma_buf_record_preload *preload;
-
-	preload = this_cpu_ptr(&dmabuf_rec_reloads);
-	while (preload->size > MAX_PCP_POOL_SIZE) {
-		struct task_dma_buf_record *rec;
-
-		rec = list_first_entry(&preload->list, typeof(*rec), node);
-		list_del(&rec->node);
-		preload->size--;
-		kmem_cache_free(task_dmabuf_record_cachep, rec);
-	}
-}
-
-static void trim_task_dmabuf_records(void)
-{
-	preempt_disable();
-	trim_task_dmabuf_records_locked();
-	preempt_enable();
-}
-
-static struct task_dma_buf_record *find_task_dmabuf_record(
-		struct task_struct *task, struct dma_buf *dmabuf)
-{
-	struct task_dma_buf_record *rec;
-
-	lockdep_assert_held(&task->dmabuf_info->lock);
-
-	list_for_each_entry(rec, &task->dmabuf_info->dmabufs, node)
-		if (dmabuf == rec->dmabuf)
-			return rec;
-
-	return NULL;
-}
-
-static void add_task_dmabuf_record(struct task_struct *task, struct dma_buf *dmabuf,
-				  struct task_dma_buf_record *rec)
-{
-	lockdep_assert_held(&task->dmabuf_info->lock);
-
-	task->dmabuf_info->rss += dmabuf->size;
-	if (task->dmabuf_info->rss > task->dmabuf_info->rss_hwm)
-		task->dmabuf_info->rss_hwm = task->dmabuf_info->rss;
-	task->dmabuf_info->pss += dmabuf->size / refcount_read(&dmabuf->file->f_count);
-	rec->dmabuf = dmabuf;
-	rec->refcnt = 1;
-	list_add(&rec->node, &task->dmabuf_info->dmabufs);
-	task->dmabuf_info->dmabuf_count++;
-}
+static inline void init_task_dmabuf_record_pool(void) {}
 
 /**
  * dma_buf_account_task - Account a dmabuf to a task
@@ -340,26 +201,6 @@ static void add_task_dmabuf_record(struct task_struct *task, struct dma_buf *dma
  */
 int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
 {
-	struct task_dma_buf_record *rec;
-
-	if (!task->dmabuf_info)
-		return -ENOMEM;
-
-	if (!task_dmabuf_records_preload(1))
-		return -ENOMEM;
-
-	spin_lock(&task->dmabuf_info->lock);
-	rec = find_task_dmabuf_record(task, dmabuf);
-	if (rec) {
-		++rec->refcnt;
-		trim_task_dmabuf_records_locked();
-	} else {
-		rec = alloc_task_dmabuf_record();
-		add_task_dmabuf_record(task, dmabuf, rec);
-	}
-	spin_unlock(&task->dmabuf_info->lock);
-	task_dmabuf_records_preload_end();
-
 	return 0;
 }
 
@@ -375,29 +216,10 @@ int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
  */
 void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
 {
-	struct task_dma_buf_record *rec;
-
-	if (!task->dmabuf_info)
-		return;
-
-	spin_lock(&task->dmabuf_info->lock);
-	rec = find_task_dmabuf_record(task, dmabuf);
-	if (rec && --rec->refcnt == 0) {
-		list_del(&rec->node);
-		free_task_dmabuf_record(rec);
-		task->dmabuf_info->dmabuf_count--;
-		task->dmabuf_info->rss -= dmabuf->size;
-		task->dmabuf_info->pss -= dmabuf->size / refcount_read(&dmabuf->file->f_count);
-	}
-	spin_unlock(&task->dmabuf_info->lock);
 }
 
 int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
 {
-	struct task_dma_buf_record *parent_rec, *child_rec;
-	int retries = 0;
-	size_t count;
-
 	if (current->dmabuf_info && (clone_flags & (CLONE_VM | CLONE_FILES))
 						== (CLONE_VM | CLONE_FILES)) {
 		/*
@@ -413,70 +235,19 @@ int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
 	 * Allocate now even if !current->dmabuf_info instead of during
 	 * accounting to avoid races which can override task->dmabuf_info.
 	 */
-	task->dmabuf_info = kmalloc(sizeof(*task->dmabuf_info), GFP_KERNEL);
+	task->dmabuf_info = kzalloc(sizeof(*task->dmabuf_info), GFP_KERNEL);
 	if (!task->dmabuf_info)
 		return -ENOMEM;
 
 	refcount_set(&task->dmabuf_info->refcnt, 1);
 	spin_lock_init(&task->dmabuf_info->lock);
 	INIT_LIST_HEAD(&task->dmabuf_info->dmabufs);
-	if (!current->dmabuf_info) {
-		task->dmabuf_info->dmabuf_count = 0;
-		task->dmabuf_info->rss = 0;
-		task->dmabuf_info->rss_hwm = 0;
-		task->dmabuf_info->pss = 0;
-
-		return 0;
-	}
-	/* Read required count racily, before obtaining dmabuf_info->lock */
-	count = READ_ONCE(current->dmabuf_info->dmabuf_count);
-	if (!task_dmabuf_records_preload(count))
-		goto err_list_copy;
-
-retry:
-	spin_lock(&current->dmabuf_info->lock);
-	if (current->dmabuf_info->dmabuf_count > count) {
-		/* We don't have enough reserved records, allocate more. */
-		count = current->dmabuf_info->dmabuf_count;
-
-		spin_unlock(&current->dmabuf_info->lock);
-		task_dmabuf_records_preload_end();
-		if (!task_dmabuf_records_preload(count))
-			goto err_list_copy;
-
-		/* Limit the number of retries to avoid live-lock */
-		if (retries++ > 5) {
-			task_dmabuf_records_preload_end();
-			goto err_list_copy;
-		}
-
-		goto retry;
-	}
-
-	/* All required records are reserved */
-	list_for_each_entry(parent_rec, &current->dmabuf_info->dmabufs, node) {
-		child_rec = alloc_task_dmabuf_record();
-		child_rec->dmabuf = parent_rec->dmabuf;
-		child_rec->refcnt = parent_rec->refcnt;
-		list_add(&child_rec->node, &task->dmabuf_info->dmabufs);
-	}
-	task->dmabuf_info->dmabuf_count = current->dmabuf_info->dmabuf_count;
-	task->dmabuf_info->rss = current->dmabuf_info->rss;
-	task->dmabuf_info->rss_hwm = current->dmabuf_info->rss_hwm;
-	task->dmabuf_info->pss = current->dmabuf_info->pss;
-	spin_unlock(&current->dmabuf_info->lock);
-
-	trim_task_dmabuf_records_locked();
-	task_dmabuf_records_preload_end();
+	task->dmabuf_info->dmabuf_count = 0;
+	task->dmabuf_info->rss = 0;
+	task->dmabuf_info->rss_hwm = 0;
+	task->dmabuf_info->pss = 0;
 
 	return 0;
-
-err_list_copy:
-	trim_task_dmabuf_records();
-	kfree(task->dmabuf_info);
-	task->dmabuf_info = NULL;
-
-	return -ENOMEM;
 }
 
 void put_dmabuf_info(struct task_struct *task)
@@ -487,13 +258,8 @@ void put_dmabuf_info(struct task_struct *task)
 	if (!refcount_dec_and_test(&task->dmabuf_info->refcnt))
 		return;
 
-	if (task->dmabuf_info->rss)
-		pr_alert("destroying task with non-zero dmabuf rss\n");
-
-	if (!list_empty(&task->dmabuf_info->dmabufs) || task->dmabuf_info->dmabuf_count > 0)
-		pr_alert("destroying task with non-empty dmabuf list\n");
-
 	kfree(task->dmabuf_info);
+	task->dmabuf_info = NULL;
 }
 
 static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
@@ -841,7 +607,7 @@ static const struct file_operations dma_buf_fops = {
 /*
  * is_dma_buf_file - Check if struct file* is associated with dma_buf
  */
-static inline int is_dma_buf_file(struct file *file)
+int is_dma_buf_file(struct file *file)
 {
 	return file->f_op == &dma_buf_fops;
 }
