@@ -318,6 +318,7 @@ static void add_task_dmabuf_record(struct task_struct *task, struct dma_buf *dma
 	task->dmabuf_info->rss += dmabuf->size;
 	if (task->dmabuf_info->rss > task->dmabuf_info->rss_hwm)
 		task->dmabuf_info->rss_hwm = task->dmabuf_info->rss;
+	task->dmabuf_info->pss += dmabuf->size / refcount_read(&dmabuf->file->f_count);
 	rec->dmabuf = dmabuf;
 	rec->refcnt = 1;
 	list_add(&rec->node, &task->dmabuf_info->dmabufs);
@@ -386,6 +387,7 @@ void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
 		free_task_dmabuf_record(rec);
 		task->dmabuf_info->dmabuf_count--;
 		task->dmabuf_info->rss -= dmabuf->size;
+		task->dmabuf_info->pss -= dmabuf->size / refcount_read(&dmabuf->file->f_count);
 	}
 	spin_unlock(&task->dmabuf_info->lock);
 }
@@ -422,6 +424,7 @@ int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
 		task->dmabuf_info->dmabuf_count = 0;
 		task->dmabuf_info->rss = 0;
 		task->dmabuf_info->rss_hwm = 0;
+		task->dmabuf_info->pss = 0;
 
 		return 0;
 	}
@@ -460,6 +463,7 @@ retry:
 	task->dmabuf_info->dmabuf_count = current->dmabuf_info->dmabuf_count;
 	task->dmabuf_info->rss = current->dmabuf_info->rss;
 	task->dmabuf_info->rss_hwm = current->dmabuf_info->rss_hwm;
+	task->dmabuf_info->pss = current->dmabuf_info->pss;
 	spin_unlock(&current->dmabuf_info->lock);
 
 	trim_task_dmabuf_records_locked();

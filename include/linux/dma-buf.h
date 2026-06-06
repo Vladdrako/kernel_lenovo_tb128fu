@@ -617,6 +617,9 @@ struct task_dma_buf_record {
  *       accounted, regardless of the size of the mapping.
  * @rss_hwm: The high watermark of @rss. This is the maximum value @rss has ever
  *           reached for the task.
+ * @pss: The proportional set size (PSS) of dmabuf memory referenced by the
+ *       tasks. This is the sum of the sizes of all dmabufs, divided by the
+ *       number of tasks sharing each dmabuf.
  * @refcnt: The number of tasks sharing this struct.
  * @lock: Lock protecting writes for @rss, and reads/writes for @dmabufs.
  * @dmabufs: List of all dmabufs referenced by the tasks.
@@ -624,6 +627,7 @@ struct task_dma_buf_record {
 struct task_dma_buf_info {
 	unsigned int rss;
 	unsigned int rss_hwm;
+	unsigned int pss;
 	refcount_t refcnt;
 	spinlock_t lock;
 	struct list_head dmabufs;
