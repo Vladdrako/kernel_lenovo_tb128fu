@@ -988,6 +988,34 @@ static void __exit ramoops_exit(void)
 	platform_driver_unregister(&ramoops_driver);
 	ramoops_unregister_dummy();
 }
+
+#include <linux/platform_device.h>
+#include <linux/pstore_ram.h>
+
+static struct ramoops_platform_data forced_ramoops_pdata = {
+.mem_address = 0x64000000,
+.mem_size    = 1024 * 1024,
+.record_size = 128 * 1024,
+.console_size = 128 * 1024,
+.pmsg_size   = 512 * 1024,
+.ftrace_size = 0,
+};
+
+static struct platform_device forced_ramoops_device = {
+	.name = "ramoops",
+	.id   = -1,
+	.dev  = {
+		.platform_data = &forced_ramoops_pdata,
+	},
+};
+
+static int __init forced_ramoops_init(void)
+{
+	pr_info("PSTORE-Debug: Forcing ramoops registration at 0x64000000\n");
+	return platform_device_register(&forced_ramoops_device);
+}
+arch_initcall(forced_ramoops_init);
+
 module_exit(ramoops_exit);
 
 MODULE_LICENSE("GPL");
