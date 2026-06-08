@@ -164,19 +164,13 @@ int scm_set_dload_mode(int arg1, int arg2)
 
 static void set_dload_mode(int on)
 {
-	int ret;
-
 	if (dload_mode_addr) {
-		__raw_writel(on ? 0xE47B337D : 0, dload_mode_addr);
-		__raw_writel(on ? 0xCE14091A : 0,
-		       dload_mode_addr + sizeof(unsigned int));
-		/* Make sure the download cookie is updated */
+		__raw_writel(0, dload_mode_addr);
+		__raw_writel(0, dload_mode_addr + sizeof(unsigned int));
 		mb();
 	}
 
-	ret = scm_set_dload_mode(on ? dload_type : 0, 0);
-	if (ret)
-		pr_err("Failed to set secure DLOAD mode: %d\n", ret);
+	scm_set_dload_mode(0, 0);
 
 	dload_mode_enabled = on;
 }
@@ -188,29 +182,14 @@ static bool get_dload_mode(void)
 
 static void enable_emergency_dload_mode(void)
 {
-	int ret;
-
 	if (emergency_dload_mode_addr) {
-		__raw_writel(EMERGENCY_DLOAD_MAGIC1,
-				emergency_dload_mode_addr);
-		__raw_writel(EMERGENCY_DLOAD_MAGIC2,
-				emergency_dload_mode_addr +
-				sizeof(unsigned int));
-		__raw_writel(EMERGENCY_DLOAD_MAGIC3,
-				emergency_dload_mode_addr +
-				(2 * sizeof(unsigned int)));
-
-		/* Need disable the pmic wdt, then the emergency dload mode
-		 * will not auto reset.
-		 */
-		qpnp_pon_wd_config(0);
-		/* Make sure all the cookied are flushed to memory */
+		__raw_writel(0, emergency_dload_mode_addr);
+		__raw_writel(0, emergency_dload_mode_addr + sizeof(unsigned int));
+		__raw_writel(0, emergency_dload_mode_addr + (2 * sizeof(unsigned int)));
 		mb();
 	}
 
-	ret = scm_set_dload_mode(SCM_EDLOAD_MODE, 0);
-	if (ret)
-		pr_err("Failed to set secure EDLOAD mode: %d\n", ret);
+	scm_set_dload_mode(0, 0);
 }
 
 static int dload_set(const char *val, const struct kernel_param *kp)
@@ -640,14 +619,11 @@ static void do_msm_restart(enum reboot_mode reboot_mode, const char *cmd)
 {
 	pr_notice("Going down for restart now\n");
 
-	msm_restart_prepare(cmd);
+	if (in_panic) {
+		cmd = "recovery";
+	}
 
-	/*
-	 * Trigger a watchdog bite here and if this fails,
-	 * device will take the usual restart path.
-	 */
-	if (WDOG_BITE_ON_PANIC && in_panic)
-		msm_trigger_wdog_bite();
+	msm_restart_prepare(cmd);
 
 	scm_disable_sdi();
 	halt_spmi_pmic_arbiter();
