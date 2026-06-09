@@ -1104,3 +1104,58 @@ void driver_detach(struct device_driver *drv)
 		put_device(dev);
 	}
 }
+
+#include <linux/of.h>
+#include <linux/of_device.h>
+#include <linux/slab.h>
+#include <linux/init.h>
+
+static int __init disable_missing_pm8008_nodes(void)
+{
+	struct device_node *np;
+	struct property *prop;
+	int ret;
+	int i;
+
+	const char *targets[] = {
+		"/soc/i2c@4a84000/qcom,pm8008@8",
+		"/soc/i2c@4a84000/qcom,pm8008@9",
+		"/soc/i2c@4a84000/battery"
+	};
+
+	pr_info("PM8008-HACK: Starting dynamic device tree patch...\n");
+
+	for (i = 0; i < ARRAY_SIZE(targets); i++) {
+		np = of_find_node_by_path(targets[i]);
+		if (!np) {
+			pr_debug("PM8008-HACK: Node %s not found, skipping\n", targets[i]);
+			continue;
+		}
+
+		prop = kzalloc(sizeof(*prop), GFP_KERNEL);
+		if (!prop) {
+			of_node_put(np);
+			return -ENOMEM;
+		}
+
+		prop->name = kstrdup("status", GFP_KERNEL);
+		prop->value = kstrdup("disabled", GFP_KERNEL);
+		prop->length = strlen("disabled") + 1;
+
+		ret = of_update_property(np, prop);
+		if (ret) {
+			pr_err("PM8008-HACK: Failed to disable %s, ret=%d\n", targets[i], ret);
+			kfree(prop->name);
+			kfree(prop->value);
+			kfree(prop);
+		} else {
+			pr_info("PM8008-HACK: Successfully set status='disabled' for %s\n", targets[i]);
+		}
+
+		of_node_put(np);
+	}
+
+	return 0;
+}
+core_initcall(disable_missing_pm8008_nodes);
+
