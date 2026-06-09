@@ -226,6 +226,33 @@ static int msm_cdc_pinctrl_probe(struct platform_device *pdev)
 	u32 i = 0, temp = 0;
 	int count = 0;
 
+	struct property *prop;
+	struct device_node *np = pdev->dev.of_node;
+
+	if (np && !of_find_property(np, "#gpio-cells", NULL)) {
+		prop = kzalloc(sizeof(*prop), GFP_KERNEL);
+		if (prop) {
+			prop->name = kstrdup("#gpio-cells", GFP_KERNEL);
+			prop->length = sizeof(int);
+			prop->value = kzalloc(sizeof(int), GFP_KERNEL);
+			if (prop->value) {
+				*(int *)prop->value = 0;
+				if (of_add_property(np, prop)) {
+					pr_err("%s: Failed to inject #gpio-cells dynamically\n", __func__);
+					kfree(prop->value);
+					kfree(prop->name);
+					kfree(prop);
+				} else {
+					pr_info("%s: Successfully injected #gpio-cells = <0> into memory for %s\n",
+						__func__, np->name);
+				}
+			} else {
+				kfree(prop->name);
+				kfree(prop);
+			}
+		}
+	}
+
 	gpio_data = devm_kzalloc(&pdev->dev,
 				 sizeof(struct msm_cdc_pinctrl_info),
 				 GFP_KERNEL);
