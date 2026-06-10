@@ -536,6 +536,9 @@ static int __init system_heap_create(void)
 	struct dma_heap *sys_uncached_heap;
 	struct dma_heap *sys_heap;
 
+	/*
+	 * Register "system-uncached" heap (mainline name).
+	 */
 	exp_info.name = "system-uncached";
 	exp_info.ops = &system_heap_ops;
 	exp_info.priv = &system_uncached_heap_priv;
@@ -546,7 +549,36 @@ static int __init system_heap_create(void)
 
 	dma_coerce_mask_and_coherent(dma_heap_get_dev(sys_uncached_heap), ~0ULL);
 
+	/*
+	 * Register "qcom,system-uncached" alias so that Qualcomm userspace
+	 * blobs (libdmabufheap.so, libgsl.so) that hardcode this name work
+	 * without modification.
+	 */
+	exp_info.name = "qcom,system-uncached";
+	exp_info.ops = &system_heap_ops;
+	exp_info.priv = &system_uncached_heap_priv;
+
+	sys_uncached_heap = dma_heap_add(&exp_info);
+	if (IS_ERR(sys_uncached_heap))
+		return PTR_ERR(sys_uncached_heap);
+
+	dma_coerce_mask_and_coherent(dma_heap_get_dev(sys_uncached_heap), ~0ULL);
+
+	/*
+	 * Register "system" heap (mainline name).
+	 */
 	exp_info.name = "system";
+	exp_info.ops = &system_heap_ops;
+	exp_info.priv = &system_heap_priv;
+
+	sys_heap = dma_heap_add(&exp_info);
+	if (IS_ERR(sys_heap))
+		return PTR_ERR(sys_heap);
+
+	/*
+	 * Register "qcom,system" alias — Qualcomm GPU driver alias.
+	 */
+	exp_info.name = "qcom,system";
 	exp_info.ops = &system_heap_ops;
 	exp_info.priv = &system_heap_priv;
 
