@@ -40,4 +40,17 @@ config DEBUG_DMA_BUF_REF
 	  matching the get/put call stacks.  This feature consumes extra memory
 	  in order to save the stack traces using STACKDEPOT.
 
+config DMABUF_HEAPS
+	bool "DMA-BUF Heaps Memory Allocator"
+	select DMA_SHARED_BUFFER
+	help
+	  Choose this option to enable the DMA-BUF heap memory allocator.
+	  The DMA-BUF heaps provide a way for user-space to allocate
+	  dma-bufs from various memory heaps. This is used by Android
+	  and other systems for graphics buffer allocation.
+
+	  If in doubt, say Y.
+
+source "drivers/dma-buf/heaps/Kconfig"
+
 endmenu
