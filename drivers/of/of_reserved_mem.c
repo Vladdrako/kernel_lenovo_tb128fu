@@ -149,28 +149,73 @@ static int __init __reserved_mem_alloc_size(unsigned long node,
 
 		base = 0;
 
-		while (len > 0) {
-			start = dt_mem_next_cell(dt_root_addr_cells, &prop);
-			end = start + dt_mem_next_cell(dt_root_size_cells,
-						       &prop);
+		if (uname && strcmp(uname, "linux,cma") == 0) {
+			phys_addr_t target_sizes[] = { 0x10000000, 0x08000000, 0x06000000, 0x04000000 };
+			int i;
 
-			ret = early_init_dt_alloc_reserved_memory_arch(size,
-					align, start, end, nomap, &base);
-			if (ret == 0) {
-				pr_debug("allocated memory for '%s' node: base %pa, size %lu MiB\n",
-					uname, &base,
-					(unsigned long)(size / SZ_1M));
-				break;
+			for (i = 0; i < 4; i++) {
+				const __be32 *curr_prop = prop;
+				int curr_len = len;
+
+				while (curr_len > 0) {
+					start = dt_mem_next_cell(dt_root_addr_cells, &curr_prop);
+					end = start + dt_mem_next_cell(dt_root_size_cells, &curr_prop);
+
+					ret = early_init_dt_alloc_reserved_memory_arch(target_sizes[i],
+							align, start, end, nomap, &base);
+					if (ret == 0) {
+						size = target_sizes[i];
+						pr_info("[CMA_HACK] Allocated %lu MiB within allowed ranges.\n",
+							(unsigned long)(size / SZ_1M));
+						break;
+					}
+					curr_len -= t_len;
+				}
+				if (base != 0)
+					break;
 			}
-			len -= t_len;
+		}
+
+		if (base == 0) {
+			while (len > 0) {
+				start = dt_mem_next_cell(dt_root_addr_cells, &prop);
+				end = start + dt_mem_next_cell(dt_root_size_cells, &prop);
+
+				ret = early_init_dt_alloc_reserved_memory_arch(size,
+						align, start, end, nomap, &base);
+				if (ret == 0) {
+					pr_debug("allocated memory for '%s' node: base %pa, size %lu MiB\n",
+						uname, &base, (unsigned long)(size / SZ_1M));
+					break;
+				}
+				len -= t_len;
+			}
 		}
 
 	} else {
-		ret = early_init_dt_alloc_reserved_memory_arch(size, align,
-							0, 0, nomap, &base);
-		if (ret == 0)
-			pr_debug("allocated memory for '%s' node: base %pa, size %lu MiB\n",
-				uname, &base, (unsigned long)(size / SZ_1M));
+		if (uname && strcmp(uname, "linux,cma") == 0) {
+			phys_addr_t target_sizes[] = { 0x10000000, 0x08000000, 0x06000000, 0x04000000 };
+			int i;
+
+			for (i = 0; i < 4; i++) {
+				ret = early_init_dt_alloc_reserved_memory_arch(target_sizes[i], align,
+									0, 0, nomap, &base);
+				if (ret == 0) {
+					size = target_sizes[i];
+					pr_info("[CMA_HACK] Allocated %lu MiB dynamic (no ranges defined).\n",
+						(unsigned long)(size / SZ_1M));
+					break;
+				}
+			}
+		}
+
+		if (base == 0) {
+			ret = early_init_dt_alloc_reserved_memory_arch(size, align,
+								0, 0, nomap, &base);
+			if (ret == 0)
+				pr_debug("allocated memory for '%s' node: base %pa, size %lu MiB\n",
+					uname, &base, (unsigned long)(size / SZ_1M));
+		}
 	}
 
 	if (base == 0) {
