@@ -706,6 +706,9 @@ int  scm_mem_protection_init_do_qrks(void)
 #if IS_ENABLED(CONFIG_QCOM_QHEE_ENABLE_MEM_PROTECTION)
 static int __init scm_mem_protection_init(void)
 {
+	pr_warn("SCM: bypassing mem_protection_init for compatibility\n");
+    return 0;
+
 	struct scm_desc desc = {0};
 	int ret = 0, resp;
 
