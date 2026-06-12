@@ -3458,9 +3458,8 @@ static int __init_regs_and_interrupts(struct venus_hfi_device *device,
 			(u8 *)(uintptr_t)res->register_base,
 			res->register_size, res->irq);
 	if (!rc) {
-		d_vpr_e("Core present/Already added\n");
-		rc = -EEXIST;
-		goto err_core_init;
+		d_vpr_h("Core present/Already added, bypassing re-initialization\n");
+		return 0; 
 	}
 
 	d_vpr_h("HAL_DATA will be assigned now\n");

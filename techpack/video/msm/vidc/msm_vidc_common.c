@@ -1533,7 +1533,7 @@ error:
 	put_inst(inst);
 }
 
-static int msm_comm_update_capabilities(struct msm_vidc_inst *inst)
+int msm_comm_update_capabilities(struct msm_vidc_inst *inst)
 {
 	struct msm_vidc_core *core;
 	struct msm_vidc_capability *capability = NULL;
@@ -1847,6 +1847,12 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 			fmt->count_min_host);
 	}
 	ptr[MSM_VIDC_FW_MIN_COUNT] = fmt->count_min_host;
+
+	rc = msm_comm_update_capabilities(inst);
+	if (rc) {
+		s_vpr_e(inst->sid, "Failed to update capabilities\n");
+		goto err_bad_event;
+	}
 
 	rc = msm_vidc_check_session_supported(inst);
 	if (!rc) {

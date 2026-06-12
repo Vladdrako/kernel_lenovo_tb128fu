@@ -391,4 +391,5 @@ int msm_comm_set_cvp_skip_ratio(struct msm_vidc_inst *inst,
 	uint32_t capture_rate, uint32_t cvp_rate);
 int msm_comm_check_memory_supported(struct msm_vidc_inst *vidc_inst);
 int msm_comm_update_dpb_bufreqs(struct msm_vidc_inst *inst);
+int msm_comm_update_capabilities(struct msm_vidc_inst *inst);
 #endif

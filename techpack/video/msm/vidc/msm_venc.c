@@ -1351,6 +1351,12 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 			goto exit;
 		}
 
+		rc = msm_comm_update_capabilities(inst);
+		if (rc) {
+			s_vpr_e(inst->sid, "Failed to update capabilities\n");
+			goto exit;
+		}
+
 		mplane->plane_fmt[0].sizeimage =
 			msm_vidc_calculate_enc_output_frame_size(inst);
 		if (mplane->num_planes > 1)
@@ -1411,6 +1417,12 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 			s_vpr_e(inst->sid,
 				"%s failed to calculate buffer count\n",
 				__func__);
+			return rc;
+		}
+
+		rc = msm_comm_update_capabilities(inst);
+		if (rc) {
+			s_vpr_e(inst->sid, "Failed to update capabilities\n");
 			return rc;
 		}
 

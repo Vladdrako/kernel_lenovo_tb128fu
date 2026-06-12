@@ -792,6 +792,12 @@ static inline int start_streaming(struct msm_vidc_inst *inst)
 		}
 	}
 
+	rc = msm_comm_update_capabilities(inst);
+	if (rc) {
+		s_vpr_e(inst->sid, "Failed to update capabilities\n");
+		goto fail_start;
+	}
+
 	/* Check if current session is under HW capability */
 	rc = msm_vidc_check_session_supported(inst);
 	if (rc) {

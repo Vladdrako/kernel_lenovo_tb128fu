@@ -2089,6 +2089,14 @@ static const struct of_device_id msm_vidc_dt_match[] = {
 		.data = &bengal_data,
 	},
 	{
+		.compatible = "qcom,msm-vidc",
+		.data = &bengal_data,
+	},
+	{
+		.compatible = "qcom,msm-vidcqcom,bengal-vidc",
+		.data = &bengal_data,
+	},
+	{
 		.compatible = "qcom,lagoon-vidc",
 		.data = &lagoon_data,
 	},
@@ -2179,11 +2187,16 @@ void *vidc_get_drv_data(struct device *dev)
 
 	match = of_match_node(msm_vidc_dt_match, dev->of_node);
 
-	if (match)
+	if (match) {
 		driver_data = (struct msm_vidc_platform_data *)match->data;
+		d_vpr_h("Found match for compatible: %s\n", match->compatible);
+	} else {
+		d_vpr_e("No match found for device node\n");
+	}
 
-	if (!driver_data)
+	if (!driver_data) {
 		goto exit;
+	}
 
 	/* Check for sku version */
 	if (of_find_property(dev->of_node, "sku-index", NULL)) {
