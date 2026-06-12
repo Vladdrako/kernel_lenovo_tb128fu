@@ -750,6 +750,11 @@ struct ion_heap *ion_system_heap_create(struct ion_platform_heap *data)
 	heap = kzalloc(sizeof(*heap), GFP_KERNEL);
 	if (!heap)
 		return ERR_PTR(-ENOMEM);
+
+	if (data)
+		data->name = "ion_system_heap";
+
+	heap->heap.name = "ion_system_heap";
 	heap->heap.ops = &system_heap_ops;
 	heap->heap.type = ION_HEAP_TYPE_SYSTEM;
 	heap->heap.flags = ION_HEAP_FLAG_DEFER_FREE;
