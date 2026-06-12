@@ -5146,6 +5146,11 @@ static int arm_smmu_init_clocks(struct arm_smmu_power_resources *pwr)
 				prop, cname) {
 		struct clk *c = devm_clk_get(dev, cname);
 
+	if (PTR_ERR(c) == -EPROBE_DEFER) {
+		dev_info(dev, "Clock %s is not ready yet. Deferring SMMU probe\n", cname);
+		return -EPROBE_DEFER;
+	}
+
 		if (IS_ERR(c)) {
 			dev_err(dev, "Couldn't get clock: %s",
 				cname);

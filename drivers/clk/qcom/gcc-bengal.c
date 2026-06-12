@@ -3749,6 +3749,8 @@ static struct clk_regmap *gcc_bengal_clocks[] = {
 	[GPLL8_OUT_MAIN] = &gpll8_out_main.clkr,
 	[GPLL9] = &gpll9.clkr,
 	[GPLL9_OUT_MAIN] = &gpll9_out_main.clkr,
+	[90] = &gcc_gpu_memnoc_gfx_clk.clkr,
+	[91] = &gcc_gpu_snoc_dvm_gfx_clk.clkr,
 };
 
 static const struct qcom_reset_map gcc_bengal_resets[] = {
