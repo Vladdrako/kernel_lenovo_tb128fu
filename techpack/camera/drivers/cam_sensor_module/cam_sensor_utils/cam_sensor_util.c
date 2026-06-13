@@ -1993,8 +1993,16 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		case SENSOR_CUSTOM_REG1:
 		case SENSOR_CUSTOM_REG2:
 			#ifdef __ENABLE_GPIO_LDO__
-			gpio_vdd_flag = (gpio_num_info && (gpio_num_info->valid[power_setting->seq_type] == 1)) ? true : false;
-			CAM_ERR(CAM_SENSOR, "seq_val = %d,gpio_vdd_flag = %d",power_setting->seq_val,gpio_vdd_flag);
+			gpio_vdd_flag = false;
+			if (gpio_num_info) {
+				if (power_setting->seq_type == SENSOR_CUSTOM_REG1)
+					gpio_vdd_flag = (gpio_num_info->valid[SENSOR_CUSTOM_GPIO1] == 1) ? true : false;
+				else if (power_setting->seq_type == SENSOR_CUSTOM_REG2)
+					gpio_vdd_flag = (gpio_num_info->valid[SENSOR_CUSTOM_GPIO2] == 1) ? true : false;
+				else
+					gpio_vdd_flag = (gpio_num_info->valid[power_setting->seq_type] == 1) ? true : false;
+			}
+			CAM_DBG(CAM_SENSOR, "seq_val = %d,gpio_vdd_flag = %d",power_setting->seq_val,gpio_vdd_flag);
 			if ((power_setting->seq_val == INVALID_VREG) && (!gpio_vdd_flag)) {
 				break;
 		        }
@@ -2052,6 +2060,8 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 				}
 				power_setting->data[0] =
 						soc_info->rgltr[vreg_idx];
+			} else if (power_setting->seq_val == INVALID_VREG) {
+				CAM_DBG(CAM_SENSOR, "seq_val is INVALID_VREG, skipping");
 			} else {
 				CAM_ERR(CAM_SENSOR, "usr_idx:%d dts_idx:%d",
 					power_setting->seq_val, num_vreg);
@@ -2152,6 +2162,8 @@ power_up_failed:
 
 				regulator_put(soc_info->rgltr[vreg_idx]);
 				soc_info->rgltr[vreg_idx] = NULL;
+			} else if (power_setting->seq_val == INVALID_VREG) {
+				CAM_DBG(CAM_SENSOR, "seq_val is INVALID_VREG, skipping");
 			} else {
 				CAM_ERR(CAM_SENSOR, "seq_val:%d > num_vreg: %d",
 					power_setting->seq_val, num_vreg);
@@ -2295,7 +2307,15 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 		case SENSOR_CUSTOM_REG1:
 		case SENSOR_CUSTOM_REG2:
 			#ifdef __ENABLE_GPIO_LDO__
-			gpio_vdd_flag = (gpio_num_info && (gpio_num_info->valid[pd->seq_type] == 1)) ? true : false;
+			gpio_vdd_flag = false;
+			if (gpio_num_info) {
+				if (pd->seq_type == SENSOR_CUSTOM_REG1)
+					gpio_vdd_flag = (gpio_num_info->valid[SENSOR_CUSTOM_GPIO1] == 1) ? true : false;
+				else if (pd->seq_type == SENSOR_CUSTOM_REG2)
+					gpio_vdd_flag = (gpio_num_info->valid[SENSOR_CUSTOM_GPIO2] == 1) ? true : false;
+				else
+					gpio_vdd_flag = (gpio_num_info->valid[pd->seq_type] == 1) ? true : false;
+			}
 			CAM_DBG(CAM_SENSOR, "seq_val = %d,gpio_vdd_flag = %d",pd->seq_val,gpio_vdd_flag);
 			if ((pd->seq_val == INVALID_VREG) && (!gpio_vdd_flag))
 				break;
@@ -2335,6 +2355,9 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 					regulator_put(
 						soc_info->rgltr[ps->seq_val]);
 					soc_info->rgltr[ps->seq_val] = NULL;
+				} else if (pd->seq_val == INVALID_VREG) {
+					CAM_DBG(CAM_SENSOR,
+						"seq_val is INVALID_VREG, skipping");
 				} else {
 					CAM_ERR(CAM_SENSOR,
 						"seq_val:%d > num_vreg: %d",

@@ -6,6 +6,7 @@
 #include <linux/module.h>
 
 #include "cam_sensor_cmn_header.h"
+#include "cam_sensor_util.h"
 #include "cam_flash_core.h"
 #include "cam_res_mgr_api.h"
 #include "cam_common_util.h"
@@ -154,7 +155,7 @@ static int cam_flash_construct_default_power_setting(
 		return -ENOMEM;
 
 	power_info->power_setting[0].seq_type = SENSOR_CUSTOM_REG1;
-	power_info->power_setting[0].seq_val = CAM_V_CUSTOM1;
+	power_info->power_setting[0].seq_val = INVALID_VREG;
 	power_info->power_setting[0].config_val = 0;
 	power_info->power_setting[0].delay = 2;
 
@@ -168,7 +169,7 @@ static int cam_flash_construct_default_power_setting(
 	}
 
 	power_info->power_down_setting[0].seq_type = SENSOR_CUSTOM_REG1;
-	power_info->power_down_setting[0].seq_val = CAM_V_CUSTOM1;
+	power_info->power_down_setting[0].seq_val = INVALID_VREG;
 	power_info->power_down_setting[0].config_val = 0;
 
 	return rc;
