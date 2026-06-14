@@ -364,6 +364,41 @@ static void system_heap_vunmap(struct dma_buf *dmabuf, void *vaddr)
 	mutex_unlock(&buffer->lock);
 }
 
+static void *system_heap_map(struct dma_buf *dmabuf, unsigned long page_num)
+{
+	struct system_heap_buffer *buffer = dmabuf->priv;
+	struct sg_table *table = &buffer->sg_table;
+	struct sg_page_iter piter;
+	unsigned long i = 0;
+
+	for_each_sg_page(table->sgl, &piter, table->nents, 0) {
+		if (i == page_num) {
+			struct page *page = sg_page_iter_page(&piter);
+			return kmap(page);
+		}
+		i++;
+	}
+
+	return NULL;
+}
+
+static void system_heap_unmap(struct dma_buf *dmabuf, unsigned long page_num, void *vaddr)
+{
+	struct system_heap_buffer *buffer = dmabuf->priv;
+	struct sg_table *table = &buffer->sg_table;
+	struct sg_page_iter piter;
+	unsigned long i = 0;
+
+	for_each_sg_page(table->sgl, &piter, table->nents, 0) {
+		if (i == page_num) {
+			struct page *page = sg_page_iter_page(&piter);
+			kunmap(page);
+			return;
+		}
+		i++;
+	}
+}
+
 static void system_heap_dma_buf_release(struct dma_buf *dmabuf)
 {
 	struct system_heap_buffer *buffer = dmabuf->priv;
@@ -387,6 +422,8 @@ static const struct dma_buf_ops system_heap_buf_ops = {
 	.unmap_dma_buf = system_heap_unmap_dma_buf,
 	.begin_cpu_access = system_heap_dma_buf_begin_cpu_access,
 	.end_cpu_access = system_heap_dma_buf_end_cpu_access,
+	.map = system_heap_map,
+	.unmap = system_heap_unmap,
 	.mmap = system_heap_mmap,
 	.vmap = system_heap_vmap,
 	.vunmap = system_heap_vunmap,
