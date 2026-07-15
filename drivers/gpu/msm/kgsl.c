@@ -1706,6 +1706,36 @@ static long kgsl_prop_query_capabilities(struct kgsl_device_private *dev_priv,
 	return ret;
 }
 
+static long kgsl_prop_secure_memory_size(struct kgsl_device_private *dev_priv,
+		struct kgsl_device_getproperty *param)
+{
+	uint64_t secure_mem_size = 0;
+
+	if (param->sizebytes < sizeof(secure_mem_size))
+		return -EINVAL;
+
+	if (copy_to_user(param->value, &secure_mem_size, sizeof(secure_mem_size)))
+		return -EFAULT;
+
+	param->sizebytes = sizeof(secure_mem_size);
+	return 0;
+}
+
+static long kgsl_prop_vk_device_id(struct kgsl_device_private *dev_priv,
+		struct kgsl_device_getproperty *param)
+{
+	uint32_t vk_id = 0;
+
+	if (param->sizebytes < sizeof(vk_id))
+		return -EINVAL;
+
+	if (copy_to_user(param->value, &vk_id, sizeof(vk_id)))
+		return -EFAULT;
+
+	param->sizebytes = sizeof(vk_id);
+	return 0;
+}
+
 static const struct {
 	int type;
 	long (*func)(struct kgsl_device_private *dev_priv,
@@ -1717,6 +1747,8 @@ static const struct {
 	{ KGSL_PROP_SECURE_CTXT_SUPPORT, kgsl_prop_secure_ctxt_support },
 	{ KGSL_PROP_QUERY_CAPABILITIES, kgsl_prop_query_capabilities },
 	{ KGSL_PROP_CONTEXT_PROPERTY, kgsl_get_ctxt_properties },
+	{ KGSL_PROP_SECURE_MEMORY_SIZE, kgsl_prop_secure_memory_size },
+	{ KGSL_PROP_VK_DEVICE_ID, kgsl_prop_vk_device_id },
 };
 
 /*call all ioctl sub functions with driver locked*/
