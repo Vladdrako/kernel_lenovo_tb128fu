@@ -179,21 +179,39 @@ vmlinux_link()
 gen_btf()
 {
 	local pahole_ver
+	local PAHOLE_BIN
 
-	if ! [ -x "$(command -v ${PAHOLE})" ]; then
-		info "BTF" "${1}: pahole (${PAHOLE}) is not available"
+	# Use prebuilt or system pahole to bypass PATH restrictions
+	if [ -x "${srctree}/../../../prebuilts/kernel-build-tools/linux-x86/bin/pahole" ]; then
+		PAHOLE_BIN="${srctree}/../../../prebuilts/kernel-build-tools/linux-x86/bin/pahole"
+	elif [ -x "../../prebuilts/kernel-build-tools/linux-x86/bin/pahole" ]; then
+		PAHOLE_BIN="../../prebuilts/kernel-build-tools/linux-x86/bin/pahole"
+	elif [ -x "/usr/bin/pahole" ]; then
+		PAHOLE_BIN="/usr/bin/pahole"
+	elif [ -x "/usr/local/bin/pahole" ]; then
+		PAHOLE_BIN="/usr/local/bin/pahole"
+	elif [ -x "/usr/sbin/pahole" ]; then
+		PAHOLE_BIN="/usr/sbin/pahole"
+	elif [ -x "$(command -v ${PAHOLE})" ]; then
+		PAHOLE_BIN="$(command -v ${PAHOLE})"
+	else
+		info "BTF" "${1}: pahole is not available"
 		return 1
 	fi
 
-	pahole_ver=$(${PAHOLE} --version | sed -E 's/v([0-9]+)\.([0-9]+)/\1\2/')
+	pahole_ver=$(${PAHOLE_BIN} --version | sed -E 's/v([0-9]+)\.([0-9]+)/\1\2/')
 	if [ "${pahole_ver}" -lt "113" ]; then
-		info "BTF" "${1}: pahole version $(${PAHOLE} --version) is too old, need at least v1.13"
+		info "BTF" "${1}: pahole version $(${PAHOLE_BIN} --version) is too old, need at least v1.13"
 		return 1
 	fi
 
 	info "BTF" ${2}
 	vmlinux_link ${1}
-	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE} -J ${1}
+	
+	# Run pahole with all necessary flags to avoid unsupported features on 4.19 kernel
+	LLVM_OBJCOPY=${OBJCOPY} ${PAHOLE_BIN} -J \
+		--btf_features=reproducible_build,var \
+		${1}
 
 	# Create ${2} which contains just .BTF section but no symbols. Add
 	# SHF_ALLOC because .BTF will be part of the vmlinux image. --strip-all

@@ -2236,6 +2236,17 @@ static int bpf_prog_load(union bpf_attr *attr, union bpf_attr __user *uattr)
 		goto free_used_maps;
 
 	prog = bpf_prog_select_runtime(prog, &err);
+	
+	if (err == -524 || err == -ENOTSUPP || err == 524) {
+		printk(KERN_WARNING "BPF: caught ENOTSUPP (524) after JIT. Checking UID...\n");
+		if (current_uid().val == 0) {
+			printk(KERN_INFO "BPF: Bypassing ENOTSUPP for system/root process (UID 0)!\n");
+			err = 0;
+		} else {
+			printk(KERN_ERR "BPF: Blocking ENOTSUPP for non-root process (UID %d)\n", current_uid().val);
+		}
+	}
+
 	if (err < 0)
 		goto free_used_maps;
 

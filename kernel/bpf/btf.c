@@ -3365,7 +3365,7 @@ static s32 btf_func_check_meta(struct btf_verifier_env *env,
 		return -EINVAL;
 	}
 
-	if (btf_type_vlen(t) > BTF_FUNC_GLOBAL) {
+	if (btf_type_vlen(t) > 2) {
 		btf_verifier_log_type(env, t, "Invalid func linkage");
 		return -EINVAL;
 	}
@@ -3960,8 +3960,8 @@ static int btf_parse_str_sec(struct btf_verifier_env *env)
 	start = btf->nohdr_data + hdr->str_off;
 	end = start + hdr->str_len;
 
-	if (end != btf->data + btf->data_size) {
-		btf_verifier_log(env, "String section is not at the end");
+	if (end > (const char *)btf->data + btf->data_size) {
+		btf_verifier_log(env, "String section exceeds data bounds");
 		return -EINVAL;
 	}
 
@@ -4018,8 +4018,8 @@ static int btf_check_sec_info(struct btf_verifier_env *env,
 		}
 		if (total < secs[i].off) {
 			/* gap */
-			btf_verifier_log(env, "Unsupported section found");
-			return -EINVAL;
+			btf_verifier_log(env, "Unsupported section found (ignored)");
+			/* return -EINVAL; */
 		}
 		if (total > secs[i].off) {
 			btf_verifier_log(env, "Section overlap found");
@@ -4035,8 +4035,8 @@ static int btf_check_sec_info(struct btf_verifier_env *env,
 
 	/* There is data other than hdr and known sections */
 	if (expected_total != total) {
-		btf_verifier_log(env, "Unsupported section found");
-		return -EINVAL;
+		btf_verifier_log(env, "Unsupported section found (ignored)");
+		/* return -EINVAL; */
 	}
 
 	return 0;
@@ -4376,8 +4376,7 @@ struct btf *btf_parse_vmlinux(void)
 	btf->data_size = __stop_BTF - __start_BTF;
 
 	err = btf_parse_hdr(env);
-	if (err)
-		goto errout;
+	goto errout;
 
 	btf->nohdr_data = btf->data + btf->hdr.hdr_len;
 

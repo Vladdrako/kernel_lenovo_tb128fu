@@ -592,12 +592,14 @@
  */
 #ifdef CONFIG_DEBUG_INFO_BTF
 #define BTF								\
+	. = ALIGN(8);							\
 	.BTF : AT(ADDR(.BTF) - LOAD_OFFSET) {				\
 		__start_BTF = .;					\
 		*(.BTF)							\
+		. = ALIGN(8);						\
 		__stop_BTF = .;						\
 	}								\
-	. = ALIGN(4);							\
+	. = ALIGN(8);							\
 	.BTF_ids : AT(ADDR(.BTF_ids) - LOAD_OFFSET) {			\
 		*(.BTF_ids)						\
 	}

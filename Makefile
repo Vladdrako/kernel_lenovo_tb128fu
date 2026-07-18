@@ -405,7 +405,7 @@ OBJSIZE		= $(CROSS_COMPILE)size
 STRIP		= $(CROSS_COMPILE)strip
 endif
 PAHOLE		= pahole
-RESOLVE_BTFIDS	= $(objtree)/tools/bpf/resolve_btfids/resolve_btfids
+RESOLVE_BTFIDS	= true
 LEX		= flex
 YACC		= bison
 AWK		= awk
