@@ -745,26 +745,115 @@ emit_cond_jmp:
 		}
 		break;
 
-	/* STX XADD: lock *(u32 *)(dst + off) += src */
-	case BPF_STX | BPF_XADD | BPF_W:
-	/* STX XADD: lock *(u64 *)(dst + off) += src */
-	case BPF_STX | BPF_XADD | BPF_DW:
-		if (!off) {
-			reg = dst;
-		} else {
-			emit_a64_mov_i(1, tmp, off, ctx);
-			emit(A64_ADD(1, tmp, tmp, dst), ctx);
-			reg = tmp;
-		}
-		if (cpus_have_cap(ARM64_HAS_LSE_ATOMICS)) {
-			emit(A64_STADD(isdw, reg, src), ctx);
-		} else {
+	/* STX ATOMIC: atomic operations (handles both legacy XADD and new BPF_ATOMIC) */
+	case BPF_STX | BPF_ATOMIC | BPF_W:
+	case BPF_STX | BPF_ATOMIC | BPF_DW:
+		if (insn->imm == BPF_ADD || insn->imm == 0) {
+			/* Atomic add - same as XADD */
+			if (!off) {
+				reg = dst;
+			} else {
+				emit_a64_mov_i(1, tmp, off, ctx);
+				emit(A64_ADD(1, tmp, tmp, dst), ctx);
+				reg = tmp;
+			}
+			if (cpus_have_cap(ARM64_HAS_LSE_ATOMICS)) {
+				emit(A64_STADD(isdw, reg, src), ctx);
+			} else {
+				emit(A64_LDXR(isdw, tmp2, reg), ctx);
+				emit(A64_ADD(isdw, tmp2, tmp2, src), ctx);
+				emit(A64_STXR(isdw, tmp2, reg, tmp3), ctx);
+				jmp_offset = -3;
+				check_imm19(jmp_offset);
+				emit(A64_CBNZ(0, tmp3, jmp_offset), ctx);
+			}
+		} else if (insn->imm == BPF_AND || insn->imm == BPF_OR || insn->imm == BPF_XOR) {
+			/* Atomic AND/OR/XOR using LL/SC */
+			if (!off) {
+				reg = dst;
+			} else {
+				emit_a64_mov_i(1, tmp, off, ctx);
+				emit(A64_ADD(1, tmp, tmp, dst), ctx);
+				reg = tmp;
+			}
 			emit(A64_LDXR(isdw, tmp2, reg), ctx);
-			emit(A64_ADD(isdw, tmp2, tmp2, src), ctx);
+			if (insn->imm == BPF_AND)
+				emit(A64_AND(isdw, tmp2, tmp2, src), ctx);
+			else if (insn->imm == BPF_OR)
+				emit(A64_ORR(isdw, tmp2, tmp2, src), ctx);
+			else
+				emit(A64_EOR(isdw, tmp2, tmp2, src), ctx);
 			emit(A64_STXR(isdw, tmp2, reg, tmp3), ctx);
 			jmp_offset = -3;
 			check_imm19(jmp_offset);
 			emit(A64_CBNZ(0, tmp3, jmp_offset), ctx);
+		} else if (insn->imm == (BPF_ADD | BPF_FETCH) ||
+			   insn->imm == (BPF_AND | BPF_FETCH) ||
+			   insn->imm == (BPF_OR | BPF_FETCH) ||
+			   insn->imm == (BPF_XOR | BPF_FETCH)) {
+			/* Atomic fetch operations using LL/SC */
+			if (!off) {
+				reg = dst;
+			} else {
+				emit_a64_mov_i(1, tmp, off, ctx);
+				emit(A64_ADD(1, tmp, tmp, dst), ctx);
+				reg = tmp;
+			}
+			emit(A64_MOV(isdw, tmp2, src), ctx);
+			emit(A64_LDXR(isdw, src, reg), ctx);
+			if (insn->imm == (BPF_ADD | BPF_FETCH))
+				emit(A64_ADD(isdw, tmp2, src, tmp2), ctx);
+			else if (insn->imm == (BPF_AND | BPF_FETCH))
+				emit(A64_AND(isdw, tmp2, src, tmp2), ctx);
+			else if (insn->imm == (BPF_OR | BPF_FETCH))
+				emit(A64_ORR(isdw, tmp2, src, tmp2), ctx);
+			else
+				emit(A64_EOR(isdw, tmp2, src, tmp2), ctx);
+			emit(A64_STLXR(isdw, tmp2, reg, tmp3), ctx);
+			jmp_offset = -3;
+			check_imm19(jmp_offset);
+			emit(A64_CBNZ(0, tmp3, jmp_offset), ctx);
+			emit(A64_DMB_ISH, ctx);
+		} else if (insn->imm == BPF_XCHG) {
+			/* Atomic exchange using LL/SC */
+			if (!off) {
+				reg = dst;
+			} else {
+				emit_a64_mov_i(1, tmp, off, ctx);
+				emit(A64_ADD(1, tmp, tmp, dst), ctx);
+				reg = tmp;
+			}
+			emit(A64_MOV(isdw, tmp2, src), ctx);
+			emit(A64_LDXR(isdw, src, reg), ctx);
+			emit(A64_STLXR(isdw, tmp2, reg, tmp3), ctx);
+			jmp_offset = -2;
+			check_imm19(jmp_offset);
+			emit(A64_CBNZ(0, tmp3, jmp_offset), ctx);
+			emit(A64_DMB_ISH, ctx);
+		} else if (insn->imm == BPF_CMPXCHG) {
+			/* Atomic compare-and-exchange using LL/SC */
+			const u8 r0 = bpf2a64[BPF_REG_0];
+			if (!off) {
+				reg = dst;
+			} else {
+				emit_a64_mov_i(1, tmp, off, ctx);
+				emit(A64_ADD(1, tmp, tmp, dst), ctx);
+				reg = tmp;
+			}
+			emit(A64_MOV(isdw, tmp2, r0), ctx);
+			emit(A64_LDXR(isdw, r0, reg), ctx);
+			emit(A64_EOR(isdw, tmp3, r0, tmp2), ctx);
+			jmp_offset = 4;
+			check_imm19(jmp_offset);
+			emit(A64_CBNZ(isdw, tmp3, jmp_offset), ctx);
+			emit(A64_STLXR(isdw, src, reg, tmp3), ctx);
+			jmp_offset = -4;
+			check_imm19(jmp_offset);
+			emit(A64_CBNZ(0, tmp3, jmp_offset), ctx);
+			emit(A64_DMB_ISH, ctx);
+		} else {
+			pr_err_once("unsupported atomic opcode %02x\n", insn->imm);
+			return -EINVAL;
 		}
 		break;
 

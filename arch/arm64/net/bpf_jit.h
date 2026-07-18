@@ -99,6 +99,10 @@
 /* [Rn] = Rt; (atomic) Rs = [state] */
 #define A64_STXR(sf, Rt, Rn, Rs) \
 	A64_LSX(sf, Rt, Rn, Rs, STORE_EX)
+/* [Rn] = Rt (store release); (atomic) Rs = [state] */
+#define A64_STLXR(sf, Rt, Rn, Rs) \
+	(aarch64_insn_gen_load_store_ex(Rt, Rn, Rs, A64_SIZE(sf), \
+					AARCH64_INSN_LDST_STORE_EX) | (1 << 15))
 
 /* LSE atomics */
 #define A64_STADD(sf, Rn, Rs) \
@@ -196,5 +200,8 @@
 #define A64_ANDS(sf, Rd, Rn, Rm) A64_LOGIC_SREG(sf, Rd, Rn, Rm, AND_SETFLAGS)
 /* Rn & Rm; set condition flags */
 #define A64_TST(sf, Rn, Rm) A64_ANDS(sf, A64_ZR, Rn, Rm)
+
+/* DMB */
+#define A64_DMB_ISH 0xd5033bbf
 
 #endif /* _BPF_JIT_H */
