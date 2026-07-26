@@ -1589,7 +1589,11 @@ static bool himax_mcu_read_event_stack(uint8_t *buf, uint8_t length)
 	if (private_ts->debug_log_level & BIT(2))
 		getnstimeofday(&t_start);
 
-	himax_bus_read(pfw_op->addr_event_addr[0], buf, length);
+	ret = himax_bus_read(pfw_op->addr_event_addr[0], buf, length);
+	if (ret < 0) {
+		E("%s: bus read fail!\n", __func__);
+		return 0;
+	}
 
 	if (private_ts->debug_log_level & BIT(2)) {
 		getnstimeofday(&t_end);
