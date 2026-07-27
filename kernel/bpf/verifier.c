@@ -246,6 +246,15 @@ struct btf *btf_vmlinux;
 
 static DEFINE_MUTEX(bpf_verifier_lock);
 
+static int bpf_jmp_offset(struct bpf_insn *insn)
+{
+	u8 code = insn->code;
+
+	if (code == (BPF_JMP32 | BPF_JA))
+		return insn->imm;
+	return insn->off;
+}
+
 static const struct bpf_line_info *
 find_linfo(const struct bpf_verifier_env *env, u32 insn_off)
 {
@@ -1540,7 +1549,7 @@ static int check_subprogs(struct bpf_verifier_env *env)
 			goto next;
 		if (BPF_OP(code) == BPF_EXIT || BPF_OP(code) == BPF_CALL)
 			goto next;
-		off = i + insn[i].off + 1;
+		off = i + bpf_jmp_offset(&insn[i]) + 1;
 		if (off < subprog_start || off >= subprog_end) {
 			verbose(env, "jump out of range from insn %d to %d\n", i, off);
 			return -EINVAL;
@@ -1552,6 +1561,7 @@ next:
 			 * or unconditional jump back
 			 */
 			if (code != (BPF_JMP | BPF_EXIT) &&
+			    code != (BPF_JMP32 | BPF_JA) &&
 			    code != (BPF_JMP | BPF_JA)) {
 				verbose(env, "last insn is not an exit or jmp\n");
 				return -EINVAL;
@@ -3763,7 +3773,8 @@ static bool bpf_map_is_rdonly(const struct bpf_map *map)
 	       !bpf_map_write_active(map);
 }
 
-static int bpf_map_direct_read(struct bpf_map *map, int off, int size, u64 *val)
+static int bpf_map_direct_read(struct bpf_map *map, int off, int size, u64 *val,
+				bool is_ldsx)
 {
 	void *ptr;
 	u64 addr;
@@ -3776,13 +3787,13 @@ static int bpf_map_direct_read(struct bpf_map *map, int off, int size, u64 *val)
 
 	switch (size) {
 	case sizeof(u8):
-		*val = (u64)*(u8 *)ptr;
+		*val = is_ldsx ? (s64)*(s8 *)ptr : (u64)*(u8 *)ptr;
 		break;
 	case sizeof(u16):
-		*val = (u64)*(u16 *)ptr;
+		*val = is_ldsx ? (s64)*(s16 *)ptr : (u64)*(u16 *)ptr;
 		break;
 	case sizeof(u32):
-		*val = (u64)*(u32 *)ptr;
+		*val = is_ldsx ? (s64)*(s32 *)ptr : (u64)*(u32 *)ptr;
 		break;
 	case sizeof(u64):
 		*val = *(u64 *)ptr;
@@ -3991,7 +4002,7 @@ static int check_stack_access_within_bounds(
  */
 static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regno,
 			    int off, int bpf_size, enum bpf_access_type t,
-			    int value_regno, bool strict_alignment_once)
+			    int value_regno, bool strict_alignment_once, bool is_ldsx)
 {
 	struct bpf_reg_state *regs = cur_regs(env);
 	struct bpf_reg_state *reg = regs + regno;
@@ -4031,7 +4042,7 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 				u64 val = 0;
 
 				err = bpf_map_direct_read(map, map_off, size,
-							  &val);
+							  &val, is_ldsx);
 				if (err)
 					return err;
 
@@ -4179,8 +4190,12 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 
 	if (!err && size < BPF_REG_SIZE && value_regno >= 0 && t == BPF_READ &&
 	    regs[value_regno].type == SCALAR_VALUE) {
-		/* b/h/w load zero-extends, mark upper bits as known 0 */
-		coerce_reg_to_size(&regs[value_regno], size);
+		if (!is_ldsx)
+			/* b/h/w load zero-extends, mark upper bits as known 0 */
+			coerce_reg_to_size(&regs[value_regno], size);
+		else
+			/* sign extension */
+			__reg_bound_offset(&regs[value_regno]);
 	}
 	return err;
 }
@@ -4222,13 +4237,13 @@ static int check_xadd(struct bpf_verifier_env *env, int insn_idx, struct bpf_ins
 
 	/* check whether atomic_add can read the memory */
 	err = check_mem_access(env, insn_idx, insn->dst_reg, insn->off,
-			       BPF_SIZE(insn->code), BPF_READ, -1, true);
+			       BPF_SIZE(insn->code), BPF_READ, -1, true, false);
 	if (err)
 		return err;
 
 	/* check whether atomic_add can write into the same memory */
 	return check_mem_access(env, insn_idx, insn->dst_reg, insn->off,
-				BPF_SIZE(insn->code), BPF_WRITE, -1, true);
+				BPF_SIZE(insn->code), BPF_WRITE, -1, true, false);
 }
 
 /* Return false if @regno contains a pointer whose type isn't supported for
@@ -4317,17 +4332,17 @@ static int check_atomic_rmw(struct bpf_verifier_env *env,
 	 * case to simulate the register fill.
 	 */
 	err = check_mem_access(env, env->insn_idx, insn->dst_reg, insn->off,
-			       BPF_SIZE(insn->code), BPF_READ, -1, true);
+			       BPF_SIZE(insn->code), BPF_READ, -1, true, false);
 	if (!err && load_reg >= 0)
 		err = check_mem_access(env, env->insn_idx, insn->dst_reg,
 				       insn->off, BPF_SIZE(insn->code),
-				       BPF_READ, load_reg, true);
+				       BPF_READ, load_reg, true, false);
 	if (err)
 		return err;
 
 	/* Check whether we can write into the same memory. */
 	err = check_mem_access(env, env->insn_idx, insn->dst_reg, insn->off,
-			       BPF_SIZE(insn->code), BPF_WRITE, -1, true);
+			       BPF_SIZE(insn->code), BPF_WRITE, -1, true, false);
 	if (err)
 		return err;
 	return 0;
@@ -5775,7 +5790,7 @@ static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn
 	 */
 	for (i = 0; i < meta.access_size; i++) {
 		err = check_mem_access(env, insn_idx, meta.regno, i, BPF_B,
-				       BPF_WRITE, -1, false);
+				       BPF_WRITE, -1, false, false);
 		if (err)
 			return err;
 	}
@@ -10263,6 +10278,7 @@ static int do_check(struct bpf_verifier_env *env)
 
 		} else if (class == BPF_LDX) {
 			enum bpf_reg_type *prev_src_type, src_reg_type;
+			bool is_ldsx = BPF_MODE(insn->code) == BPF_MEMSX;
 
 			/* check for reserved fields is already done */
 
@@ -10282,7 +10298,7 @@ static int do_check(struct bpf_verifier_env *env)
 			 */
 			err = check_mem_access(env, env->insn_idx, insn->src_reg,
 					       insn->off, BPF_SIZE(insn->code),
-					       BPF_READ, insn->dst_reg, false);
+					       BPF_READ, insn->dst_reg, false, is_ldsx);
 			if (err)
 				return err;
 
@@ -10346,7 +10362,7 @@ static int do_check(struct bpf_verifier_env *env)
 			/* check that memory (dst_reg + off) is writeable */
 			err = check_mem_access(env, env->insn_idx, insn->dst_reg,
 					       insn->off, BPF_SIZE(insn->code),
-					       BPF_WRITE, insn->src_reg, false);
+					       BPF_WRITE, insn->src_reg, false, false);
 			if (err)
 				return err;
 
@@ -10380,7 +10396,7 @@ static int do_check(struct bpf_verifier_env *env)
 			/* check that memory (dst_reg + off) is writeable */
 			err = check_mem_access(env, env->insn_idx, insn->dst_reg,
 					       insn->off, BPF_SIZE(insn->code),
-					       BPF_WRITE, -1, false);
+					       BPF_WRITE, -1, false, false);
 			if (err)
 				return err;
 
@@ -10719,7 +10735,8 @@ static int resolve_pseudo_ldimm64(struct bpf_verifier_env *env)
 
 	for (i = 0; i < insn_cnt; i++, insn++) {
 		if (BPF_CLASS(insn->code) == BPF_LDX &&
-		    (BPF_MODE(insn->code) != BPF_MEM || insn->imm != 0)) {
+		    ((BPF_MODE(insn->code) != BPF_MEM &&
+		      BPF_MODE(insn->code) != BPF_MEMSX) || insn->imm != 0)) {
 			verbose(env, "BPF_LDX uses reserved fields\n");
 			return -EINVAL;
 		}

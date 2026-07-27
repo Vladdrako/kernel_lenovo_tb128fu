@@ -616,6 +616,9 @@ u32 aarch64_insn_gen_load_store_reg(enum aarch64_insn_register reg,
 	case AARCH64_INSN_LDST_LOAD_REG_OFFSET:
 		insn = aarch64_insn_get_ldr_reg_value();
 		break;
+	case AARCH64_INSN_LDST_SIGNED_LOAD_REG_OFFSET:
+		insn = aarch64_insn_get_signed_ldr_reg_value();
+		break;
 	case AARCH64_INSN_LDST_STORE_REG_OFFSET:
 		insn = aarch64_insn_get_str_reg_value();
 		break;

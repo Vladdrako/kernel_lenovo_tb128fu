@@ -72,10 +72,13 @@
 #define A64_LDRB(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 8, LOAD)
 #define A64_STRH(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 16, STORE)
 #define A64_LDRH(Wt, Xn, Xm)  A64_LS_REG(Wt, Xn, Xm, 16, LOAD)
+#define A64_LDRSH(Wt, Xn, Xm) A64_LS_REG(Wt, Xn, Xm, 16, SIGNED_LOAD)
 #define A64_STR32(Wt, Xn, Xm) A64_LS_REG(Wt, Xn, Xm, 32, STORE)
 #define A64_LDR32(Wt, Xn, Xm) A64_LS_REG(Wt, Xn, Xm, 32, LOAD)
+#define A64_LDRSW(Xt, Xn, Xm) A64_LS_REG(Xt, Xn, Xm, 32, SIGNED_LOAD)
 #define A64_STR64(Xt, Xn, Xm) A64_LS_REG(Xt, Xn, Xm, 64, STORE)
 #define A64_LDR64(Xt, Xn, Xm) A64_LS_REG(Xt, Xn, Xm, 64, LOAD)
+#define A64_LDRSB(Wt, Xn, Xm) A64_LS_REG(Wt, Xn, Xm, 8, SIGNED_LOAD)
 
 /* Load/store register pair */
 #define A64_LS_PAIR(Rt, Rt2, Rn, offset, ls, type) \

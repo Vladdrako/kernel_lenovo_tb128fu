@@ -180,7 +180,7 @@ void print_bpf_insn(const struct bpf_insn_cbs *cbs,
 			verbose(cbs->private_data, "BUG_st_%02x\n", insn->code);
 		}
 	} else if (class == BPF_LDX) {
-		if (BPF_MODE(insn->code) != BPF_MEM) {
+		if (BPF_MODE(insn->code) != BPF_MEM && BPF_MODE(insn->code) != BPF_MEMSX) {
 			verbose(cbs->private_data, "BUG_ldx_%02x\n", insn->code);
 			return;
 		}
