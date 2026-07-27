@@ -63,6 +63,27 @@ config ANDROID_VENDOR_HOOKS
 	  Allow vendor modules to attach to tracepoint "hooks" defined via
 	  DECLARE_HOOK or DECLARE_RESTRICTED_HOOK.
 
+config ANDROID_SIMPLE_LMK
+	bool "Simple Low Memory Killer"
+	default n
+	help
+	  Simple LMK is a low memory killer that reaps anonymous memory
+	  from victims to quickly free up memory when under pressure.
+
+config ANDROID_SIMPLE_LMK_MINFREE
+	int "Simple LMK minimum free pages (in MB)"
+	depends on ANDROID_SIMPLE_LMK
+	default 64
+	help
+	  The minimum amount of memory (in MB) to free per reclaim.
+
+config ANDROID_SIMPLE_LMK_TIMEOUT_MSEC
+	int "Simple LMK timeout (ms)"
+	depends on ANDROID_SIMPLE_LMK
+	default 2000
+	help
+	  The timeout in milliseconds for each reclaim operation.
+
 endif # if ANDROID
 
 endmenu

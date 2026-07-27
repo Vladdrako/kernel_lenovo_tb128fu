@@ -1200,6 +1200,11 @@ struct task_struct {
 	struct mutex_waiter		*blocked_on;
 #endif
 
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
+	/* Simple LMK linked list for task bucket */
+	struct task_struct		*simple_lmk_next;
+#endif
+
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned int			irq_events;
 	unsigned long			hardirq_enable_ip;
