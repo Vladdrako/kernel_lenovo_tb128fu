@@ -45,6 +45,7 @@ static int convert_prio(int prio)
 	return cpupri;
 }
 
+#ifdef CONFIG_RT_SOFTINT_OPTIMIZATION
 /**
  * drop_nopreempt_cpus - remove a cpu from the mask if it is likely
  *			 non-preemptible
@@ -65,6 +66,7 @@ drop_nopreempt_cpus(struct cpumask *lowest_mask)
 		cpu = cpumask_next(cpu, lowest_mask);
 	}
 }
+#endif
 
 /**
  * cpupri_find - find the best (lowest-pri) CPU in the system
@@ -90,7 +92,9 @@ int cpupri_find(struct cpupri *cp, struct task_struct *p,
 
 	BUG_ON(task_pri >= CPUPRI_NR_PRIORITIES);
 
+#ifdef CONFIG_RT_SOFTINT_OPTIMIZATION
 retry:
+#endif
 	for (idx = 0; idx < task_pri; idx++) {
 		struct cpupri_vec *vec  = &cp->pri_to_cpu[idx];
 		int skip = 0;
@@ -128,8 +132,10 @@ retry:
 			cpumask_and(lowest_mask, &p->cpus_allowed, vec->mask);
 			cpumask_andnot(lowest_mask, lowest_mask,
 				       cpu_isolated_mask);
+#ifdef CONFIG_RT_SOFTINT_OPTIMIZATION
 			if (drop_nopreempts)
 				drop_nopreempt_cpus(lowest_mask);
+#endif
 			/*
 			 * We have to ensure that we have at least one bit
 			 * still set in the array, since the map could have
@@ -148,10 +154,12 @@ retry:
 	 * If we can't find any non-preemptible cpu's, retry so we can
 	 * find the lowest priority target and avoid priority inversion.
 	 */
+#ifdef CONFIG_RT_SOFTINT_OPTIMIZATION
 	if (drop_nopreempts) {
 		drop_nopreempts = false;
 		goto retry;
 	}
+#endif
 	return 0;
 }
 

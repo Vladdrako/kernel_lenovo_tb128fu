@@ -1480,6 +1480,7 @@ static void yield_task_rt(struct rq *rq)
 #ifdef CONFIG_SMP
 static int find_lowest_rq(struct task_struct *task);
 
+#ifdef CONFIG_RT_SOFTINT_OPTIMIZATION
 /*
  * Return whether the task on the given cpu is currently non-preemptible
  * while handling a potentially long softint, or if the task is likely
@@ -1497,6 +1498,7 @@ task_may_not_preempt(struct task_struct *task, int cpu)
 		(task == cpu_ksoftirqd ||
 		 task_thread_info(task)->preempt_count & SOFTIRQ_MASK));
 }
+#endif
 
 static int
 select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags,
@@ -1547,7 +1549,11 @@ select_task_rq_rt(struct task_struct *p, int cpu, int sd_flag, int flags,
 	 * This test is optimistic, if we get it wrong the load-balancer
 	 * will have to sort it out.
 	 */
+#ifdef CONFIG_RT_SOFTINT_OPTIMIZATION
 	may_not_preempt = task_may_not_preempt(curr, cpu);
+#else
+	may_not_preempt = false;
+#endif
 	if (static_branch_unlikely(&sched_energy_present) || may_not_preempt ||
 	    (unlikely(rt_task(curr)) &&
 	     (curr->nr_cpus_allowed < 2 ||

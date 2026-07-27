@@ -1296,6 +1296,15 @@ config RELAY
 
 	  If unsure, say N.
 
+config RT_SOFTINT_OPTIMIZATION
+	bool "Improve RT scheduling during long softint execution"
+	depends on ARM64 && SMP
+	help
+	  This option improves real-time task scheduling when softirqs
+	  are running for extended periods. It avoids placing RT tasks
+	  on CPUs that are likely to be non-preemptible due to softirq
+	  handling.
+
 config BLK_DEV_INITRD
 	bool "Initial RAM filesystem and RAM disk (initramfs/initrd) support"
 	help
