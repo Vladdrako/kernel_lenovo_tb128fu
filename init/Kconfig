@@ -167,6 +167,13 @@ config BUILD_SALT
           This is mostly useful for distributions which want to ensure the
           build is unique between builds. It's safe to leave the default.
 
+config POLLY_CLANG
+	bool "Use Clang Polly optimizations"
+	depends on CC_IS_CLANG && $(cc-option, -mllvm -polly)
+	help
+	  Use Clang's Polly optimizer for additional loop optimizations.
+	  This can improve performance but may increase build time.
+
 config HAVE_KERNEL_GZIP
 	bool
 
