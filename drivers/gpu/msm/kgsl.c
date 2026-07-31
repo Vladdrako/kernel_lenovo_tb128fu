@@ -1757,7 +1757,7 @@ long kgsl_ioctl_device_getproperty(struct kgsl_device_private *dev_priv,
 {
 	struct kgsl_device *device = dev_priv->device;
 	struct kgsl_device_getproperty *param = data;
-	int i;
+	int i, ret;
 
 	for (i = 0; i < ARRAY_SIZE(kgsl_property_funcs); i++) {
 		if (param->type == kgsl_property_funcs[i].type)
@@ -1765,9 +1765,19 @@ long kgsl_ioctl_device_getproperty(struct kgsl_device_private *dev_priv,
 	}
 
 	if (is_compat_task())
-		return device->ftbl->getproperty_compat(device, param);
+		ret = device->ftbl->getproperty_compat(device, param);
+	else
+		ret = device->ftbl->getproperty(device, param);
 
-	return device->ftbl->getproperty(device, param);
+	if (ret == -EINVAL) {
+		if (param->value && param->sizebytes > 0) {
+			if (clear_user(param->value, param->sizebytes))
+				return -EFAULT;
+		}
+		return 0;
+	}
+
+	return ret;
 }
 
 int kgsl_query_property_list(struct kgsl_device *device, u32 *list, u32 count)
@@ -2306,6 +2316,15 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 	struct kgsl_drawctxt_create *param = data;
 	struct kgsl_context *context = NULL;
 	struct kgsl_device *device = dev_priv->device;
+
+	param->flags &= (KGSL_CONTEXT_PREAMBLE |
+			 KGSL_CONTEXT_NO_GMEM_ALLOC |
+			 KGSL_CONTEXT_PER_CONTEXT_TS |
+			 KGSL_CONTEXT_USER_GENERATED_TS |
+			 KGSL_CONTEXT_NO_FAULT_TOLERANCE |
+			 KGSL_CONTEXT_TYPE_MASK |
+			 KGSL_CONTEXT_PRIORITY_MASK |
+			 KGSL_CONTEXT_IFH_NOP);
 
 	context = device->ftbl->drawctxt_create(dev_priv, &param->flags);
 	if (IS_ERR(context)) {
@@ -3004,6 +3023,13 @@ long kgsl_ioctl_gpuobj_import(struct kgsl_device_private *dev_priv,
 
 	if (ret)
 		goto out;
+
+	if (param->type == KGSL_USER_MEM_TYPE_DMABUF && entry->memdesc.sgt) {
+		dma_sync_sg_for_device(dev_priv->device->dev,
+				       entry->memdesc.sgt->sgl,
+				       entry->memdesc.sgt->nents,
+				       DMA_BIDIRECTIONAL);
+	}
 
 	if (entry->memdesc.size >= SZ_1M)
 		kgsl_memdesc_set_align(&entry->memdesc, ilog2(SZ_1M));

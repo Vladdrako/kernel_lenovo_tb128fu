@@ -763,6 +763,7 @@
 #define A6XX_UCHE_GMEM_RANGE_MIN_HI         0xE0C
 #define A6XX_UCHE_GMEM_RANGE_MAX_LO         0xE0D
 #define A6XX_UCHE_GMEM_RANGE_MAX_HI         0xE0E
+#define A6XX_UCHE_CACHE_INVALIDATE		    0xE09
 #define A6XX_UCHE_CACHE_WAYS                0xE17
 #define A6XX_UCHE_FILTER_CNTL               0xE18
 #define A6XX_UCHE_CLIENT_PF                 0xE19

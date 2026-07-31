@@ -41,6 +41,7 @@ static u32 a6xx_pwrup_reglist[] = {
 	A6XX_UCHE_FILTER_CNTL,
 	A6XX_UCHE_CACHE_WAYS,
 	A6XX_UCHE_MODE_CNTL,
+	A6XX_UCHE_CLIENT_PF,
 	A6XX_RB_NC_MODE_CNTL,
 	A6XX_TPL1_NC_MODE_CNTL,
 	A6XX_SP_NC_MODE_CNTL,
@@ -490,6 +491,8 @@ static void a6xx_start(struct adreno_device *adreno_dev)
 
 	kgsl_regwrite(device, A6XX_UCHE_FILTER_CNTL, 0x804);
 	kgsl_regwrite(device, A6XX_UCHE_CACHE_WAYS, 0x4);
+
+	kgsl_regwrite(device, A6XX_UCHE_CACHE_INVALIDATE, 0x1);
 
 	if (adreno_is_a640_family(adreno_dev) ||
 		adreno_is_a650_family(adreno_dev)) {
