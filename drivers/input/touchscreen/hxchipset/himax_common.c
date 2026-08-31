@@ -126,6 +126,41 @@ uint32_t g_proj_id = 0xffff;
 EXPORT_SYMBOL(g_proj_id);
 #endif
 
+/* [HXTP_FIX] Periodic Sensitivity Enforcer - AGGRESSIVE (2 seconds) */
+#define HX_ENFORCER_INTERVAL_MS 2000 /* 2 seconds */
+static struct delayed_work himax_enforcer_work;
+static struct workqueue_struct *himax_enforcer_wq;
+static bool enforcer_enabled = false;
+
+static void himax_enforcer_func(struct work_struct *work)
+{
+	if (!enforcer_enabled || !private_ts) {
+		return;
+	}
+
+	/* Skip if system is suspended */
+	if (atomic_read(&private_ts->suspend_mode)) {
+		goto reschedule;
+	}
+
+	/* Force Game Mode ON - reduces latency, disables auto-idle */
+	if (g_core_fp.fp_set_game_mode)
+		g_core_fp.fp_set_game_mode(1);
+
+reschedule:
+	if (enforcer_enabled && himax_enforcer_wq) {
+		queue_delayed_work(himax_enforcer_wq, &himax_enforcer_work,
+			msecs_to_jiffies(HX_ENFORCER_INTERVAL_MS));
+	}
+}
+
+static void himax_enforcer_start(void)
+{
+	enforcer_enabled = true;
+	queue_delayed_work(himax_enforcer_wq, &himax_enforcer_work,
+		msecs_to_jiffies(HX_ENFORCER_INTERVAL_MS));
+}
+
 struct himax_ts_data *private_ts;
 EXPORT_SYMBOL(private_ts);
 
@@ -994,6 +1029,7 @@ int himax_input_register(struct himax_ts_data *ts)
 		set_bit(gest_key_def[i], ts->input_dev->keybit);
 #elif defined(CONFIG_TOUCHSCREEN_HIMAX_INSPECT) || defined(HX_PALM_REPORT)
 	set_bit(KEY_POWER, ts->input_dev->keybit);
+	set_bit(KEY_WAKEUP, ts->input_dev->keybit);
 #endif
 	set_bit(BTN_TOUCH, ts->input_dev->keybit);
 	set_bit(KEY_APPSELECT, ts->input_dev->keybit);
@@ -1044,6 +1080,11 @@ int himax_input_register(struct himax_ts_data *ts)
 /*			| (ts->pdata->abs_x_max << 16)*/
 /*			| ts->pdata->abs_y_max),*/
 /*			0, 0);*/
+
+	/* Mark input device as wakeup-capable so the input subsystem holds
+	 * a wakelock when dispatching events from this device. Without this,
+	 * KEY_POWER sent during suspend is lost before Android processes it. */
+	device_init_wakeup(&ts->input_dev->dev, true);
 
 	if (himax_input_register_device(ts->input_dev) == 0) {
 		ret = NO_ERR;
@@ -1421,15 +1462,10 @@ static void himax_wake_event_report(void)
 		input_report_key(private_ts->input_dev, KEY_EVENT, 1);
 		input_sync(private_ts->input_dev);
 		msleep(20);
+		I("%s SMART WAKEUP KEY event %d release\n",
+				__func__, KEY_EVENT);
 		input_report_key(private_ts->input_dev, KEY_EVENT, 0);
 		input_sync(private_ts->input_dev);
-		I("%s SMART WAKEUP KEY event %d sent (press+release)\n", __func__, KEY_EVENT);
-		/* [HXTP_FIX] Do NOT clear SMWP_event_chk here. himax_ts_work()
-		 * uses it as a flag "a real gesture was already reported" so it
-		 * skips the fallback KEY_POWER. Clearing it here caused a DOUBLE
-		 * KEY_POWER (report + fallback) that toggled the screen on then
-		 * off, making DT2W appear to fail intermittently. ts_work resets
-		 * it after the fallback check. */
 #if defined(HX_GESTURE_TRACK)
 		I("gest_start_x=%d,start_y=%d,end_x=%d,end_y=%d\n",
 			gest_start_x,
@@ -1452,6 +1488,7 @@ static void himax_wake_event_report(void)
 			hx_gesture_coor[14],
 			hx_gesture_coor[15]);
 #endif
+		g_target_report_data->SMWP_event_chk = 0;
 	}
 }
 
@@ -1740,7 +1777,7 @@ void himax_cable_detect_func(bool force_renew)
 static int himax_ts_work_status(struct himax_ts_data *ts)
 {
 	/* 1: normal, 2:SMWP */
-	//+OAK78,shenwenbin.wt,MOD,20211130,double wakeup sometime SPI not wake
+//+OAK78,shenwenbin.wt,MOD,20211130,double wakeup sometime SPI not wake
 #if defined(HX_SMART_WAKEUP)
 	int i;
 #endif
@@ -1751,38 +1788,30 @@ static int himax_ts_work_status(struct himax_ts_data *ts)
 	if (hx_touch_data->diag_cmd)
 		result = HX_REPORT_COORD_RAWDATA;
 
+//+OAK78,shenwenbin.wt,MOD,20211130,double wakeup sometime SPI not wake
 #if defined(HX_SMART_WAKEUP)
 	if (atomic_read(&ts->suspend_mode)
 	&& (ts->SMWP_enable)
 	&& (!hx_touch_data->diag_cmd)){
-	  /* [HXTP_FIX] Hold wakeup source BEFORE SPI wait to prevent
-	   * system from going back to suspend while we read gesture data */
-	  __pm_wakeup_event(ts->ts_SMWP_wake_lock, TS_WAKE_LOCK_TIMEOUT);
+	  if(!pm_runtime_enabled(&ts->spi->dev)){
+			pm_wakeup_event(&ts->input_dev->dev, 5000);
+			for( i = 0; i < 100;i++){
+				if(pm_runtime_enabled(&ts->spi->dev)){
+					I("CTP_SPI ready!waiting for %dms\n", i*10);
+					break;
+				}
 
-	  /* [HXTP_FIX] Wake both input device AND SPI bus */
-	  pm_wakeup_event(&ts->input_dev->dev, 5000);
-	  pm_wakeup_event(&ts->spi->dev, 5000);
-	  if (ts->dev)
-		pm_wakeup_event(ts->dev, 5000);
+				msleep(10);
+			}
 
-	  pm_runtime_get_sync(&ts->spi->dev);
-	  if (ts->spi->master && ts->spi->master->dev.parent)
-		pm_runtime_get_sync(ts->spi->master->dev.parent);
-
-	  for (i = 0; i < 100; i++) {
-		if (pm_runtime_active(&ts->spi->dev) ||
-		    (ts->spi->master && pm_runtime_active(&ts->spi->master->dev))) {
-			pr_err("[HXTP_FIX] CTP_SPI ready after %dms\n", i * 5);
-			break;
-		}
-		msleep(5);
-	  }
-
-	  if (i >= 100)
-		pr_err("[HXTP_FIX] CTP_SPI ready Time out!(500ms)\n");
+			if(i >= 100)
+				E("Waiting for CTP_SPI ready Time out!(1000ms)\n");
+	  }else
+		I("CTP_SPI ready!\n");
 
 	  result = HX_REPORT_SMWP_EVENT;
 	}
+//+OAK78,shenwenbin.wt,MOD,20211130,double wakeup sometime SPI not wake
 #endif
 	/* I("Now Status is %d\n", result); */
 	return result;
@@ -2982,44 +3011,8 @@ void himax_ts_work(struct himax_ts_data *ts)
 		ts_status = himax_ts_operation(ts, ts_path, ts_status);
 		break;
 	case HX_REPORT_SMWP_EVENT:
-	{
-		int reported;
-
 		ts_status = himax_ts_operation(ts, ts_path, ts_status);
-
-		/* [HXTP_FIX] himax_wake_event_report() reports KEY_POWER and
-		 * leaves SMWP_event_chk != 0 as a flag "already reported".
-		 * Snapshot it, then clear so the next IRQ starts clean. */
-		reported = g_target_report_data->SMWP_event_chk;
-		g_target_report_data->SMWP_event_chk = 0;
-
-		/* [HXTP_FIX] Only send the fallback KEY_POWER when the normal
-		 * path did NOT already report a gesture. The IRQ itself proves
-		 * the firmware detected a wake gesture, so if the SPI read
-		 * failed or the gesture parse yielded nothing, synthesize the
-		 * wake here. This avoids the DOUBLE KEY_POWER (report+fallback)
-		 * that toggled the screen back off and made DT2W flaky. */
-		if (reported == 0) {
-			I("[HXTP_FIX] SMWP fallback: no gesture reported, sending KEY_POWER\n");
-			input_report_key(ts->input_dev, KEY_POWER, 1);
-			input_sync(ts->input_dev);
-			msleep(20);
-			input_report_key(ts->input_dev, KEY_POWER, 0);
-			input_sync(ts->input_dev);
-			ts_status = HX_TS_NORMAL_END;
-		}
-
-		/* [HXTP_FIX] A checksum/read failure here is expected on the
-		 * first gesture frame after suspend and must NOT trigger the
-		 * IC reset path below (that reset is what lost the event and
-		 * required extra taps). We already synthesized the wake. */
-		ts_status = HX_TS_NORMAL_END;
-
-		pm_runtime_put_sync(&ts->spi->dev);
-		if (ts->spi->master && ts->spi->master->dev.parent)
-			pm_runtime_put_sync(ts->spi->master->dev.parent);
 		break;
-	}
 	case HX_REPORT_COORD_RAWDATA:
 		ts_status = himax_ts_operation(ts, ts_path, ts_status);
 		break;
@@ -3494,6 +3487,19 @@ int himax_chip_common_init(void)
 	ts->HSEN_enable = 0;
 #endif
 
+	pr_info("[HXTP_FIX] INIT: Applying Game Mode\n");
+	if (g_core_fp.fp_set_game_mode)
+		g_core_fp.fp_set_game_mode(1);
+
+	/* [HXTP_FIX] Start Periodic Enforcer (every 2 seconds) */
+	himax_enforcer_wq = create_singlethread_workqueue("hx_enforcer");
+	if (himax_enforcer_wq) {
+		INIT_DELAYED_WORK(&himax_enforcer_work, himax_enforcer_func);
+		himax_enforcer_start();
+		pr_info("[HXTP_FIX] Periodic Enforcer started (every %dms)\n", HX_ENFORCER_INTERVAL_MS);
+	} else {
+		pr_err("[HXTP_FIX] Failed to create enforcer workqueue!\n");
+	}
 
 	if (himax_common_proc_init()) {
 		E(" %s: himax_common proc_init failed!\n", __func__);
@@ -3854,6 +3860,7 @@ END:
 	private_ts ->game_mode = 0;
 	//-OAK4146,shenwenbin.wt,ADD,20220125,add TP game mode
 
+	//-OAK4139,shenwenbin.wt,ADD,20220217,improve virtual bar edge restrain
 	I("%s: END\n", __func__);
 
 	return 0;

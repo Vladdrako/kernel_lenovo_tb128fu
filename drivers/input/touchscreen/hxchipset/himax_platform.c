@@ -144,8 +144,64 @@ int himax_ts_check_dt(struct device_node *np)
 }
 #endif
 
+#include <linux/pinctrl/consumer.h>
+
+static void inject_himax_pinctrl_dt(struct device_node *np)
+{
+	struct property *prop_names, *prop_0, *prop_1;
+	uint32_t *phandles_0, *phandles_1;
+
+	if (!np)
+		return;
+
+	if (of_find_property(np, "pinctrl-names", NULL)) {
+		I("[HXTP_FIX] pinctrl-names already present in DT\n");
+		return;
+	}
+
+	/* 1. pinctrl-names = "default", "sleep" */
+	prop_names = kzalloc(sizeof(*prop_names), GFP_KERNEL);
+	if (prop_names) {
+		prop_names->name = kstrdup("pinctrl-names", GFP_KERNEL);
+		prop_names->value = kmemdup("default\0sleep\0", 14, GFP_KERNEL);
+		prop_names->length = 14;
+		of_add_property(np, prop_names);
+	}
+
+	/* 2. pinctrl-0 = <0x2d4 0x2d6> (ts_int_active, ts_reset_active - pull-up 1.8V) */
+	prop_0 = kzalloc(sizeof(*prop_0), GFP_KERNEL);
+	if (prop_0) {
+		prop_0->name = kstrdup("pinctrl-0", GFP_KERNEL);
+		phandles_0 = kzalloc(2 * sizeof(uint32_t), GFP_KERNEL);
+		if (phandles_0) {
+			phandles_0[0] = cpu_to_be32(0x2d4); /* ts_int_active: gpio80 pull-up */
+			phandles_0[1] = cpu_to_be32(0x2d6); /* ts_reset_active: gpio86 pull-up */
+			prop_0->value = phandles_0;
+			prop_0->length = 2 * sizeof(uint32_t);
+			of_add_property(np, prop_0);
+		}
+	}
+
+	/* 3. pinctrl-1 = <0x2d4 0x2d6> (force active pull-up during sleep too!) */
+	prop_1 = kzalloc(sizeof(*prop_1), GFP_KERNEL);
+	if (prop_1) {
+		prop_1->name = kstrdup("pinctrl-1", GFP_KERNEL);
+		phandles_1 = kzalloc(2 * sizeof(uint32_t), GFP_KERNEL);
+		if (phandles_1) {
+			phandles_1[0] = cpu_to_be32(0x2d4); /* ts_int_active */
+			phandles_1[1] = cpu_to_be32(0x2d6); /* ts_reset_active */
+			prop_1->value = phandles_1;
+			prop_1->length = 2 * sizeof(uint32_t);
+			of_add_property(np, prop_1);
+		}
+	}
+
+	I("[HXTP_FIX] Successfully injected pinctrl properties (0x2d4, 0x2d6 pull-up) into DT!\n");
+}
+
 int himax_parse_dt(struct himax_ts_data *ts, struct himax_platform_data *pdata)
 {
+	inject_himax_pinctrl_dt(ts->dev->of_node);
 	int rc, coords_size = 0;
 	uint32_t coords[4] = {0};
 	struct property *prop;
@@ -936,6 +992,11 @@ int himax_ts_register_interrupt(void)
 
 	/* Work functon */
 	if (private_ts->hx_irq) {/*INT mode*/
+		struct pinctrl *p = devm_pinctrl_get_select_default(private_ts->dev);
+		if (IS_ERR_OR_NULL(p))
+			I("[HXTP_FIX] pinctrl select default result: %ld\n", PTR_ERR(p));
+		else
+			I("[HXTP_FIX] pinctrl selected default (pull-up active)\n");
 		ts->use_irq = 1;
 		ret = himax_int_register_trigger();
 
