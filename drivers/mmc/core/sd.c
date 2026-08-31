@@ -775,7 +775,7 @@ static int mmc_sd_init_uhs_card(struct mmc_card *card)
 			card->host->v18_disable = 1;
 	}
 			
-	pr_err("%s: the new mode is 0x%08x\n",
+	pr_debug("%s: the new mode is 0x%08x\n",
 							mmc_hostname(card->host),card->sd_bus_speed);
 #endif
 // bayhub chevron.li add for degrade code at 2019/8/30 end
@@ -1234,7 +1234,7 @@ void bht_load(struct mmc_host *mmc_host, struct mmc_card *card)
 	{
 		u32 gg_sw_def[16] = GGC_CFG_DATA;//default use iSD no SSC
 
-		pr_info("%s: Load BHT patch RC8.3.1-DS=4\n", mmc_hostname(mmc_host));
+		pr_debug("%s: Load BHT patch RC8.3.1-DS=4\n", mmc_hostname(mmc_host));
 		/* clear tuning flag when need to degrade mode */
 		if (mmc_host->degrade) {
 			_ggc_reset_tuning_result_for_dll(host);
@@ -1266,7 +1266,7 @@ void bht_load(struct mmc_host *mmc_host, struct mmc_card *card)
 			set_gg_reg_cur_val((u8*)gg_sw_def);
 		}	else {
 			if (vendor_host->ggc.selx_tuning_done_flag)
-				pr_info("%s: skip load default configuration for tuning done\n", mmc_hostname(mmc_host));			
+				pr_debug("%s: skip load default configuration for tuning done\n", mmc_hostname(mmc_host));			
 			if (vendor_host->ggc.tuning_cmd7_timeout_reinit_flg)
 			{
 				u8 data[512];
@@ -1337,7 +1337,7 @@ retry:
 			host->degrade_count = 0;
 			host->degrade = 0;
 	}
-	pr_err("### Bayhub debug: degrade count is %d ###\n", host->degrade_count);
+	pr_debug("### Bayhub debug: degrade count is %d ###\n", host->degrade_count);
 #endif
 // bayhub chevron.li add for degrade code at 2019/8/30 end
 	/*

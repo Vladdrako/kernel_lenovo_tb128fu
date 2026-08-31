@@ -1111,14 +1111,14 @@ static void bq2589x_monitor_workfunc(struct work_struct *work)
 		break;
 	}
 
-	dev_err(bq->dev, "%s:vbus_type: %d, vbus volt:%d,vbat volt:%d,charge current:%d, usb-switch1 %d, usb_switch_flag %d\n",
+	dev_dbg(bq->dev, "%s:vbus_type: %d, vbus volt:%d,vbat volt:%d,charge current:%d, usb-switch1 %d, usb_switch_flag %d\n",
 			__func__, bq->charge_type, bq->vbus_volt, bq->vbat_volt, chg_current, bq->usb_switch1, bq->usb_switch_flag);
 
 	ret = bq2589x_read_byte(bq, &status, BQ2589X_REG_13);
 	if (ret == 0 && (status & BQ2589X_VDPM_STAT_MASK))
-		dev_info(bq->dev, "%s:VINDPM occurred\n", __func__);
+		dev_dbg(bq->dev, "%s:VINDPM occurred\n", __func__);
 	if (ret == 0 && (status & BQ2589X_IDPM_STAT_MASK))
-		dev_info(bq->dev, "%s:IINDPM occurred\n", __func__);
+		dev_dbg(bq->dev, "%s:IINDPM occurred\n", __func__);
 
 	schedule_delayed_work(&bq->monitor_work, msecs_to_jiffies(10000));
 }
@@ -1462,7 +1462,7 @@ static int bq2589x_usb_set_prop(struct power_supply *psy,
 
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 		bq->usb_suspend = (bool)val->intval;
-		dev_err(bq->dev,
+		dev_dbg(bq->dev,
 				"set usb suspend: %d\n", bq->usb_suspend);
 		if (bq->usb_suspend) {
 			bq2589x_enter_hiz_mode(bq);
@@ -1472,7 +1472,7 @@ static int bq2589x_usb_set_prop(struct power_supply *psy,
 		break;
 
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
-		dev_err(bq->dev, 
+		dev_dbg(bq->dev, 
 				"set input current: %d\n", val->intval);
 		bq2589x_set_input_current_limit(bq, val->intval);
 		break;

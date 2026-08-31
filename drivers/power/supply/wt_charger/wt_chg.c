@@ -588,7 +588,7 @@ static int wtchg_set_chg_ibat_current(struct wt_chg *chg)
 		chg->slave_chg_ibatt = FCC_0_MA;
 	}
 
-	dev_err(chg->dev,  "type_ibatt=%d, jeita_ibatt=%d, main_chg_ibatt=%d, slave_chg_ibatt=%d, chg_ibatt=%d,chg_ibatt_pre=%d\n",
+	dev_dbg(chg->dev,  "type_ibatt=%d, jeita_ibatt=%d, main_chg_ibatt=%d, slave_chg_ibatt=%d, chg_ibatt=%d,chg_ibatt_pre=%d\n",
 		chg->chg_type_ibatt, chg->jeita_ibatt, chg->main_chg_ibatt,
 		chg->slave_chg_ibatt, chg->chg_ibatt, chg->chg_ibatt_pre);
 
@@ -1588,7 +1588,7 @@ static void wtchg_charge_strategy_machine(struct wt_chg *chg)
 		chg->slave_chg_enable = false;
 	}
 
-	dev_err(chg->dev,  "jeita_batt_cv=%d, jeita_batt_cv_pre=%d, input_curr=%d, input_curr_pre=%d, slave_enable=%d\n",
+	dev_dbg(chg->dev,  "jeita_batt_cv=%d, jeita_batt_cv_pre=%d, input_curr=%d, input_curr_pre=%d, slave_enable=%d\n",
 				chg->jeita_batt_cv, chg->jeita_batt_cv_pre,
 				chg->chg_type_input_curr, chg->chg_type_input_curr_pre,
 				chg->slave_chg_enable);
@@ -1800,7 +1800,7 @@ static int wtchg_battery_protect_charge_manage(struct wt_chg *chg)
 		chg->batt_protected_mode_disable_suspend = false;
 	}
 
-	dev_err(chg->dev, "batt_protected_mode=%d batt_protected_mode_disable_charge=%d batt_protected_mode_disable_suspend=%d \n",
+	dev_dbg(chg->dev, "batt_protected_mode=%d batt_protected_mode_disable_charge=%d batt_protected_mode_disable_suspend=%d \n",
 					chg->batt_protected_mode, chg->batt_protected_mode_disable_charge, chg->batt_protected_mode_disable_suspend);
 
 #if 0
@@ -1840,7 +1840,7 @@ static int wtchg_float_charge_type_check(struct wt_chg *chg)
 	int ret = 0;
 	union power_supply_propval val = {0,};
 
-	dev_err(chg->dev, "wtchg_float_charge_type_check vbus_online=%d real_type=%d float_recheck_cnt=%d\n", 
+	dev_dbg(chg->dev, "wtchg_float_charge_type_check vbus_online=%d real_type=%d float_recheck_cnt=%d\n", 
 				chg->vbus_online , chg->real_type, chg->float_recheck_cnt);
 
 	if(chg->vbus_online == 1 && chg->real_type == 16){
@@ -1899,7 +1899,7 @@ static void wt_chg_main(struct work_struct *work)
 				(5000 % MSEC_PER_SEC) * NSEC_PER_MSEC);
 	resume_time = ktime_add(now, add);
 	chg->resume_main_work_time = resume_time;
-	dev_err(chg->dev, "wt_chg_main now = %lld resume_time = %lld \n", ktime_to_ms(now), ktime_to_ms(resume_time));
+	dev_dbg(chg->dev, "wt_chg_main now = %lld resume_time = %lld \n", ktime_to_ms(now), ktime_to_ms(resume_time));
 
 	if(is_device_suspended(chg)){
 		pr_err("wt_chg_main device is suspended schedule next work \n");
@@ -1945,12 +1945,12 @@ static void wt_chg_main(struct work_struct *work)
 	}
 
 	wtchg_get_batt_status(chg);
-	pr_err("chg_type: %d, vbus_online: %d, vbus_volt: %d, chg_status: %d, batt_volt: %d, batt_current: %d, temp: %d, health: %d, capacity: %d\n",
+	pr_debug("chg_type: %d, vbus_online: %d, vbus_volt: %d, chg_status: %d, batt_volt: %d, batt_current: %d, temp: %d, health: %d, capacity: %d\n",
 			chg->real_type, chg->vbus_online, chg->vbus_volt,
 			chg->chg_status, chg->batt_volt, chg->chg_current,
 			chg->batt_temp, chg->batt_health, chg->batt_capacity);
 
-	pr_err("chg_temp: %d, usb_temp: %d, board_temp: %d, usb_online: %d, ac_online: %d, pd_active:%d typec_pr_role:%d \n",
+	pr_debug("chg_temp: %d, usb_temp: %d, board_temp: %d, usb_online: %d, ac_online: %d, pd_active:%d typec_pr_role:%d \n",
 			chg->main_chg_temp, chg->usb_port_temp, chg->board_temp,
 			chg->usb_online, chg->ac_online, chg->pd_active, chg->typec_pr_role);
 

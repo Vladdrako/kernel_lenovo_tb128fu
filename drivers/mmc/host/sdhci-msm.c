@@ -3278,14 +3278,14 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 		if (bht_target_host(host)) {
 			if(gpio_is_valid(msm_host->pdata->status_gpio)){
 				card_present_status = gpio_get_value(msm_host->pdata->status_gpio);
-				pr_info("%s: detect_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->status_gpio,
+				pr_debug("%s: detect_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->status_gpio,
 				card_present_status);
 			}else
 			{
 				pr_err("%s: no det_gpio provided\n", mmc_hostname(host->mmc));
 			}
-			pr_info("%s: apply bht power on patch\n", mmc_hostname(host->mmc));
-			pr_info("%s: present status is %d\n", mmc_hostname(host->mmc), card_present_status);
+			pr_debug("%s: apply bht power on patch\n", mmc_hostname(host->mmc));
+			pr_debug("%s: present status is %d\n", mmc_hostname(host->mmc), card_present_status);
 			
 			//_ggc_reset_tuning_result_for_dll(host);
 			ggc_dll_voltage_init(host);
@@ -3293,7 +3293,7 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 
 			if(gpio_is_valid(msm_host->pdata->pwr_gpio)){	
 				gpio_set_value(msm_host->pdata->pwr_gpio, 1);//set PWR GPIO on
-				pr_info("%s: pwr_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->pwr_gpio,\
+				pr_debug("%s: pwr_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->pwr_gpio,\
 					gpio_get_value(msm_host->pdata->pwr_gpio));
 			}else
 			{
@@ -3323,27 +3323,27 @@ static irqreturn_t sdhci_msm_pwr_irq(int irq, void *data)
 			if (bht_target_host(host)){
 				if(gpio_is_valid(msm_host->pdata->status_gpio)){
 					card_present_status = gpio_get_value(msm_host->pdata->status_gpio);
-					pr_info("%s: det_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->status_gpio,
+					pr_debug("%s: det_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->status_gpio,
 					card_present_status);
 				}else
 				{
 					pr_err("%s: no det_gpio provided\n", mmc_hostname(host->mmc));
 				}
-				pr_info("%s: apply bht power off patch\n", mmc_hostname(host->mmc));
-				pr_info("%s: present status is %d\n", mmc_hostname(host->mmc), card_present_status);
+				pr_debug("%s: apply bht power off patch\n", mmc_hostname(host->mmc));
+				pr_debug("%s: present status is %d\n", mmc_hostname(host->mmc), card_present_status);
 				
 				ggc_dll_voltage_init(host);
 				// when GPIO_SD_CARD_PRESENT is 1, the card is inserted
 				if (!card_present_status)
 				{
-					pr_info("%s: clear tuning result for power off and card removed\n", mmc_hostname(host->mmc));					
+					pr_debug("%s: clear tuning result for power off and card removed\n", mmc_hostname(host->mmc));					
 					ggc_tuning_result_reset(host);
 				}
 				ggc_chip_init(host);
 
 				if(gpio_is_valid(msm_host->pdata->pwr_gpio)){
 					gpio_set_value(msm_host->pdata->pwr_gpio, 0);//set PWR GPIO off
-					pr_info("%s: pwr_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->pwr_gpio,\
+					pr_debug("%s: pwr_gpio pin %d status is %d\n", mmc_hostname(host->mmc), msm_host->pdata->pwr_gpio,\
 						gpio_get_value(msm_host->pdata->pwr_gpio));
 				}else
 				{

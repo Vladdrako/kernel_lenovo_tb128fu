@@ -381,7 +381,7 @@ static int sgm4151x_set_input_suspend(struct sgm4151x_device *sgm_chg, int suspe
 
 	int  ret = 0;
 
-	dev_err(sgm_chg->dev, "set input suspend: %d\n", suspend);
+	dev_dbg(sgm_chg->dev, "set input suspend: %d\n", suspend);
 	if (suspend) {
 		sgm4151x_enter_hiz_mode(sgm_chg);
 	} else {
