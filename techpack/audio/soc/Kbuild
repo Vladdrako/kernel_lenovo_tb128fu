@@ -204,27 +204,20 @@ GCOV_PROFILE := y
 endif
 
 # Module information used by KBuild framework
-obj-$(CONFIG_PINCTRL_WCD) += pinctrl_wcd_dlkm.o
-pinctrl_wcd_dlkm-y := $(PINCTRL_WCD_OBJS)
+obj-$(CONFIG_PINCTRL_WCD) += pinctrl-wcd.o
 
-obj-$(CONFIG_PINCTRL_LPI) += pinctrl_lpi_dlkm.o
-pinctrl_lpi_dlkm-y := $(PINCTRL_LPI_OBJS)
+obj-$(CONFIG_PINCTRL_LPI) += pinctrl-lpi.o
 
-obj-$(CONFIG_PINCTRL_LPI_LEGACY) += pinctrl_lpi_dlkm.o
-pinctrl_lpi_dlkm-y := $(PINCTRL_LPI_OBJS)
+obj-$(CONFIG_PINCTRL_LPI_LEGACY) += pinctrl-lpi-legacy.o
 
-obj-$(CONFIG_SOUNDWIRE) += swr_dlkm.o
-swr_dlkm-y := $(SWR_OBJS)
+obj-$(CONFIG_SOUNDWIRE) += regmap-swr.o soundwire.o
 
-obj-$(CONFIG_SND_EVENT) += snd_event_dlkm.o
-snd_event_dlkm-y := $(SND_EVENT_OBJS)
+obj-$(CONFIG_SND_EVENT) += snd_event.o
 
-obj-$(CONFIG_SOUNDWIRE_WCD_CTRL) += swr_ctrl_dlkm.o
-obj-$(CONFIG_SOUNDWIRE_MSTR_CTRL) += swr_ctrl_dlkm.o
-swr_ctrl_dlkm-y := $(SWR_CTRL_OBJS)
+obj-$(CONFIG_SOUNDWIRE_WCD_CTRL) += swr-wcd-ctrl.o
+obj-$(CONFIG_SOUNDWIRE_MSTR_CTRL) += swr-mstr-ctrl.o
 
-obj-$(CONFIG_WCD_SPI_AC) += wcd_spi_acc_ctl_dlkm.o
-wcd_spi_acc_ctl_dlkm-y := $(WCD_SPI_ACC_CTL_OBJS)
+obj-$(CONFIG_WCD_SPI_AC) += wcd-spi-ac.o wcd_spi_ctl_v01.o
 
 # inject some build related information
 DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

@@ -687,6 +687,61 @@ u32 msm_audio_populate_upper_32_bits(dma_addr_t pa)
 }
 EXPORT_SYMBOL(msm_audio_populate_upper_32_bits);
 
+int msm_audio_get_phy_addr(int fd, dma_addr_t *paddr, size_t *pa_len)
+{
+	struct dma_buf *dma_buf;
+	int rc = 0;
+
+	if (!paddr || !pa_len) {
+		pr_err("%s: Invalid params\n", __func__);
+		return -EINVAL;
+	}
+
+	dma_buf = dma_buf_get(fd);
+	if (IS_ERR_OR_NULL(dma_buf)) {
+		pr_err("%s: dma_buf_get failed\n", __func__);
+		return -EINVAL;
+	}
+
+	rc = msm_audio_ion_get_phys(dma_buf, paddr, pa_len);
+	if (rc) {
+		pr_err("%s: msm_audio_ion_get_phys failed, rc = %d\n",
+		       __func__, rc);
+		dma_buf_put(dma_buf);
+	}
+
+	return rc;
+}
+EXPORT_SYMBOL(msm_audio_get_phy_addr);
+
+void msm_audio_ion_crash_handler(void)
+{
+	struct msm_audio_alloc_data *alloc_data = NULL;
+	struct list_head *ptr, *next;
+
+	pr_debug("%s: Enter\n", __func__);
+
+	mutex_lock(&(msm_audio_ion_data.list_mutex));
+	list_for_each_safe(ptr, next, &(msm_audio_ion_data.alloc_list)) {
+		alloc_data = list_entry(ptr, struct msm_audio_alloc_data, list);
+		if (alloc_data) {
+			dma_buf_unmap_attachment(alloc_data->attach,
+						 alloc_data->table,
+						 DMA_BIDIRECTIONAL);
+			dma_buf_detach(alloc_data->dma_buf,
+				       alloc_data->attach);
+			dma_buf_put(alloc_data->dma_buf);
+			list_del(&(alloc_data->list));
+			kfree(alloc_data);
+			alloc_data = NULL;
+		}
+	}
+	mutex_unlock(&(msm_audio_ion_data.list_mutex));
+
+	pr_debug("%s: Exit\n", __func__);
+}
+EXPORT_SYMBOL(msm_audio_ion_crash_handler);
+
 static int msm_audio_smmu_init(struct device *dev)
 {
 	INIT_LIST_HEAD(&msm_audio_ion_data.alloc_list);

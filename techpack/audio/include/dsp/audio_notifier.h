@@ -79,6 +79,15 @@ int audio_notifier_register(char *client_name, int domain,
  */
 int audio_notifier_deregister(char *client_name);
 
+/*
+ * Use audio_notifier_probe_status to check if audio notifier
+ * probe has completed.
+ *
+ * Returns:	Success: 1 (probe completed)
+ *		Error: 0 (probe not completed)
+ */
+int audio_notifier_probe_status(void);
+
 #else
 
 static inline int audio_notifier_register(char *client_name, int domain,
@@ -90,6 +99,11 @@ static inline int audio_notifier_register(char *client_name, int domain,
 static inline int audio_notifier_deregister(char *client_name)
 {
 	return 0;
+}
+
+static inline int audio_notifier_probe_status(void)
+{
+	return 1;
 }
 
 #endif /* CONFIG_MSM_QDSP6_NOTIFIER */

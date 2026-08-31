@@ -253,36 +253,26 @@ ifeq ($(KERNEL_BUILD), 1)
 	obj-y	+= aw882xx/
 endif
 # Module information used by KBuild framework
-obj-$(CONFIG_WCD9XXX_CODEC_CORE) += wcd_core_dlkm.o
-obj-$(CONFIG_WCD9XXX_CODEC_CORE_V2) += wcd_core_dlkm.o
-wcd_core_dlkm-y := $(CORE_OBJS)
+obj-$(CONFIG_WCD9XXX_CODEC_CORE) += $(CORE_OBJS)
+obj-$(CONFIG_WCD9XXX_CODEC_CORE_V2) += $(CORE_OBJS)
 
-obj-$(CONFIG_SND_SOC_WCD9XXX_V2) += wcd9xxx_dlkm.o
-wcd9xxx_dlkm-y := $(WCD9XXX_OBJS)
+obj-$(CONFIG_SND_SOC_WCD9XXX_V2) += $(WCD9XXX_OBJS)
 
-obj-$(CONFIG_SND_SOC_WCD9335) += wcd9335_dlkm.o
-wcd9335_dlkm-y := $(WCD9335_OBJS)
+obj-$(CONFIG_SND_SOC_WCD9335) += $(WCD9335_OBJS)
 
-obj-$(CONFIG_SND_SOC_WSA881X) += wsa881x_dlkm.o
-wsa881x_dlkm-y := $(WSA881X_OBJS)
+obj-$(CONFIG_SND_SOC_WSA881X) += $(WSA881X_OBJS)
 
-obj-$(CONFIG_SND_SOC_WSA881X_ANALOG) += wsa881x_analog_dlkm.o
-wsa881x_analog_dlkm-y := $(WSA881X_ANALOG_OBJS)
+obj-$(CONFIG_SND_SOC_WSA881X_ANALOG) += $(WSA881X_ANALOG_OBJS)
 
-obj-$(CONFIG_SND_SOC_MSM_STUB) += stub_dlkm.o
-stub_dlkm-y := $(STUB_OBJS)
+obj-$(CONFIG_SND_SOC_MSM_STUB) += $(STUB_OBJS)
 
-obj-$(CONFIG_SND_SOC_WCD_CPE) += wcd_cpe_dlkm.o
-wcd_cpe_dlkm-y := $(WCD_CPE_OBJS)
+obj-$(CONFIG_SND_SOC_WCD_CPE) += $(WCD_CPE_OBJS)
 
-obj-$(CONFIG_SND_SOC_WCD_SPI) += wcd_spi_dlkm.o
-wcd_spi_dlkm-y := $(SPI_OBJS)
+obj-$(CONFIG_SND_SOC_WCD_SPI) += $(SPI_OBJS)
 
-obj-$(CONFIG_SND_SOC_WCD_MBHC) += mbhc_dlkm.o
-mbhc_dlkm-y := $(MBHC_OBJS)
+obj-$(CONFIG_SND_SOC_WCD_MBHC) += $(MBHC_OBJS)
 
-obj-$(CONFIG_SND_SOC_MSM_HDMI_CODEC_RX) += hdmi_dlkm.o
-hdmi_dlkm-y := $(HDMICODEC_OBJS)
+obj-$(CONFIG_SND_SOC_MSM_HDMI_CODEC_RX) += $(HDMICODEC_OBJS)
 
 # inject some build related information
 DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

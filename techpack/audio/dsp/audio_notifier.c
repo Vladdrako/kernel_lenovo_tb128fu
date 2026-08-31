@@ -606,6 +606,13 @@ static int __init audio_notifier_late_init(void)
 	return 0;
 }
 
+int audio_notifier_probe_status(void)
+{
+	/* For the older implementation, always return true */
+	return 1;
+}
+EXPORT_SYMBOL(audio_notifier_probe_status);
+
 #ifdef CONFIG_MSM_QDSP6_PDR
 static int __init audio_notifier_init(void)
 {

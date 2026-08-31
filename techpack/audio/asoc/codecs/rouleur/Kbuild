@@ -106,14 +106,11 @@ KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/soc/Module
 endif
 
 # Module information used by KBuild framework
-obj-$(CONFIG_SND_SOC_ROULEUR) += rouleur_dlkm.o
-rouleur_dlkm-y := $(ROULEUR_OBJS)
+obj-$(CONFIG_SND_SOC_ROULEUR) += $(ROULEUR_OBJS)
 
-obj-$(CONFIG_SND_SOC_ROULEUR_SLAVE) += rouleur_slave_dlkm.o
-rouleur_slave_dlkm-y := $(ROULEUR_SLAVE_OBJS)
+obj-$(CONFIG_SND_SOC_ROULEUR_SLAVE) += $(ROULEUR_SLAVE_OBJS)
 
-obj-$(CONFIG_PM2250_SPMI) += pm2250_spmi_dlkm.o
-pm2250_spmi_dlkm-y := $(PM2250_SPMI_OBJS)
+obj-$(CONFIG_PM2250_SPMI) += $(PM2250_SPMI_OBJS)
 
 # inject some build related information
 DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

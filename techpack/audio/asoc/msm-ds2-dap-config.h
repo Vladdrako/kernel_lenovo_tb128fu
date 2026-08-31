@@ -38,7 +38,6 @@ struct dolby_param_license32 {
 		_IOR('U', 0x15, struct dolby_param_data32)
 #endif
 
-#if defined(CONFIG_DOLBY_DS2) || defined(CONFIG_DOLBY_LICENSE)
 /* DOLBY DOLBY GUIDS */
 #define DS2_MODULE_ID			0x00010775
 
@@ -105,39 +104,4 @@ void msm_ds2_dap_deinit(int port_id);
 int msm_ds2_dap_set_custom_stereo_onoff(int port_id, int copp_idx,
 					bool is_custom_stereo_enabled);
 /* Dolby DOLBY end */
-#else
-
-static inline int msm_ds2_dap_update_port_parameters(struct snd_hwdep *hw,
-					       struct file *file,
-					       bool open)
-{
-	return 0;
-}
-
-static inline int msm_ds2_dap_ioctl(struct snd_hwdep *hw, struct file *file,
-				    u32 cmd, void *arg)
-{
-	return 0;
-}
-
-static inline int msm_ds2_dap_compat_ioctl(struct snd_hwdep *hw,
-					   struct file *file,
-					   u32 cmd, void *arg)
-{
-	return 0;
-}
-static inline int msm_ds2_dap_init(int port_id, int copp_idx, int channels,
-		     bool is_custom_stereo_on)
-{
-	return 0;
-}
-
-static inline void msm_ds2_dap_deinit(int port_id) { }
-
-static inline int msm_ds2_dap_set_custom_stereo_onoff(int port_id, int copp_idx,
-				    bool is_custom_stereo_enabled)
-{
-	return 0;
-}
-#endif
 #endif
