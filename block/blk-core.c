@@ -2152,7 +2152,20 @@ static inline int bio_check_eod(struct bio *bio, sector_t maxsector)
 	if (nr_sectors && maxsector &&
 	    (nr_sectors > maxsector ||
 	     bio->bi_iter.bi_sector > maxsector - nr_sectors)) {
-		handle_bad_sector(bio, maxsector);
+		/*
+		 * Speculative reads are allowed to run past the end of the
+		 * device and are expected to fail: REQ_RAHEAD literally means
+		 * "can fail anytime". The same happens on loop devices, where
+		 * mounting the small ext4 images that back the APEX packages
+		 * makes the page cache read a full cluster past the end of the
+		 * image. Neither case indicates a problem, so fail the bio
+		 * quietly instead of flooding dmesg with hundreds of lines at
+		 * every boot, while still reporting genuine out-of-range
+		 * accesses on real block devices.
+		 */
+		if (!(bio->bi_opf & REQ_RAHEAD) &&
+		    (!bio->bi_disk || bio->bi_disk->major != LOOP_MAJOR))
+			handle_bad_sector(bio, maxsector);
 		return -EIO;
 	}
 	return 0;
