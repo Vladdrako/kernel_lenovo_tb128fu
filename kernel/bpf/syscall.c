@@ -415,19 +415,11 @@ void bpf_map_charge_move(struct bpf_map_memory *dst,
 
 int bpf_map_charge_memlock(struct bpf_map *map, u32 pages)
 {
-	int ret;
-
-	ret = bpf_charge_memlock(map->memory.user, pages);
-	if (ret)
-		return ret;
-	map->memory.pages += pages;
-	return ret;
+	return 0;
 }
 
 void bpf_map_uncharge_memlock(struct bpf_map *map, u32 pages)
 {
-	bpf_uncharge_memlock(map->memory.user, pages);
-	map->memory.pages -= pages;
 }
 
 static int bpf_map_alloc_id(struct bpf_map *map)

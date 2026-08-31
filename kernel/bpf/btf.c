@@ -4018,8 +4018,8 @@ static int btf_check_sec_info(struct btf_verifier_env *env,
 		}
 		if (total < secs[i].off) {
 			/* gap */
-			btf_verifier_log(env, "Unsupported section found (ignored)");
-			/* return -EINVAL; */
+			btf_verifier_log(env, "Unsupported section found");
+			return -EINVAL;
 		}
 		if (total > secs[i].off) {
 			btf_verifier_log(env, "Section overlap found");
@@ -4035,8 +4035,8 @@ static int btf_check_sec_info(struct btf_verifier_env *env,
 
 	/* There is data other than hdr and known sections */
 	if (expected_total != total) {
-		btf_verifier_log(env, "Unsupported section found (ignored)");
-		/* return -EINVAL; */
+		btf_verifier_log(env, "Unsupported section found");
+		return -EINVAL;
 	}
 
 	return 0;
@@ -4376,6 +4376,25 @@ struct btf *btf_parse_vmlinux(void)
 	btf->data_size = __stop_BTF - __start_BTF;
 
 	err = btf_parse_hdr(env);
+	/*
+	 * NOTE: deliberately stop after the header check.
+	 *
+	 * RESOLVE_BTFIDS is stubbed out to "true" in the top-level Makefile,
+	 * so the .BTF_ids section stays filled with zeros. Continuing here
+	 * makes bpf_ctx_convert_btf_id[0] resolve to 0 and
+	 * btf_vmlinux_map_ids_init() fail, so btf_vmlinux becomes an ERR_PTR.
+	 * bpf_check() then reports "in-kernel BTF is malformed" for every
+	 * program, netbpfload exits non-zero, and init reboots the device
+	 * because the bpfloader service has reboot_on_failure. That is a
+	 * guaranteed bootloop.
+	 *
+	 * Bailing out leaves btf_vmlinux as NULL, which the verifier treats as
+	 * "kernel has no BTF" and simply skips the features that need it
+	 * (map_ptr access, fentry/fexit, struct_ops). Everything Android's BPF
+	 * loader actually uses keeps working.
+	 *
+	 * Revisit once resolve_btfids is built and run for this tree.
+	 */
 	goto errout;
 
 	btf->nohdr_data = btf->data + btf->hdr.hdr_len;
