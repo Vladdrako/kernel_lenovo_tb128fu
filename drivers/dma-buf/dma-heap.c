@@ -1,33 +1,36 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Framework for userspace DMA-BUF allocations
+ * DMABUF Heaps Allocation Infrastructure
  *
  * Copyright (C) 2011 Google, Inc.
  * Copyright (C) 2019 Linaro Ltd.
  */
 
+#define pr_fmt(fmt) "dma_heap: " fmt
+
 #include <linux/cdev.h>
-#include <linux/device.h>
 #include <linux/dma-buf.h>
 #include <linux/dma-heap.h>
 #include <linux/err.h>
-#include <linux/export.h>
-#include <linux/idr.h>
-#include <linux/list.h>
+#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/fs.h>
+#include <linux/kobject.h>
+#include <linux/kref.h>
 #include <linux/nospec.h>
-#include <linux/syscalls.h>
+#include <linux/sysfs.h>
 #include <linux/uaccess.h>
+#include <linux/xarray.h>
 #include <uapi/linux/dma-heap.h>
 
 #define DEVNAME "dma_heap"
-
 #define NUM_HEAP_MINORS 128
 
 /**
- * struct dma_heap - represents a dmabuf heap in the system
- * @name:		used for debugging/device-node name
- * @ops:		ops struct for this heap
- * @priv:		private data for this heap
+ * struct dma_heap - represents a device created to allocate dmabufs
+ * @name:		used to generate /dev/dma_heap/<name>
+ * @ops:		ops to operate on this heap
+ * @priv:		private data to the heap
  * @heap_devt		heap device node
  * @list		list head connecting to list of heaps
  * @heap_cdev		heap char device
@@ -50,7 +53,7 @@ static LIST_HEAD(heap_list);
 static DEFINE_MUTEX(heap_list_lock);
 static dev_t dma_heap_devt;
 static struct class *dma_heap_class;
-static DEFINE_IDR(dma_heap_minors);
+static DEFINE_XARRAY_ALLOC(dma_heap_minors);
 
 bool __read_mostly mem_accounting;
 EXPORT_SYMBOL_GPL(mem_accounting);
@@ -74,7 +77,6 @@ struct dma_heap *dma_heap_find(const char *name)
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(dma_heap_find);
-
 
 void dma_heap_buffer_free(struct dma_buf *dmabuf)
 {
@@ -121,7 +123,6 @@ int dma_heap_bufferfd_alloc(struct dma_heap *heap, size_t len,
 		/* just return, as put will call release and that will free */
 	}
 	return fd;
-
 }
 EXPORT_SYMBOL_GPL(dma_heap_bufferfd_alloc);
 
@@ -129,7 +130,7 @@ static int dma_heap_open(struct inode *inode, struct file *file)
 {
 	struct dma_heap *heap;
 
-	heap = idr_find(&dma_heap_minors, iminor(inode));
+	heap = xa_load(&dma_heap_minors, iminor(inode));
 	if (!heap) {
 		pr_err("dma_heap: minor %d unknown.\n", iminor(inode));
 		return -ENODEV;
@@ -236,11 +237,11 @@ static const struct file_operations dma_heap_fops = {
 };
 
 /**
- * dma_heap_get_drvdata - get per-heap driver data
+ * dma_heap_get_drvdata() - get per-subdriver data for the heap
  * @heap: DMA-Heap to retrieve private data for
  *
  * Returns:
- * The per-heap data for the heap.
+ * The per-subdriver data for the heap.
  */
 void *dma_heap_get_drvdata(struct dma_heap *heap)
 {
@@ -258,7 +259,7 @@ static void dma_heap_release(struct kref *ref)
 
 	device_destroy(dma_heap_class, heap->heap_devt);
 	cdev_del(&heap->heap_cdev);
-	idr_remove(&dma_heap_minors, minor);
+	xa_erase(&dma_heap_minors, minor);
 
 	kfree(heap);
 }
@@ -289,8 +290,8 @@ struct device *dma_heap_get_dev(struct dma_heap *heap)
 EXPORT_SYMBOL_GPL(dma_heap_get_dev);
 
 /**
- * dma_heap_get_name - get heap name
- * @heap: DMA-Heap to retrieve the name of
+ * dma_heap_get_name() - get heap name
+ * @heap: DMA-Heap to retrieve private data for
  *
  * Returns:
  * The char* for the heap name.
@@ -301,14 +302,10 @@ const char *dma_heap_get_name(struct dma_heap *heap)
 }
 EXPORT_SYMBOL_GPL(dma_heap_get_name);
 
-/**
- * dma_heap_add - adds a heap to dmabuf heaps
- * @exp_info: information needed to register this heap
- */
 struct dma_heap *dma_heap_add(const struct dma_heap_export_info *exp_info)
 {
-	struct dma_heap *heap, *h, *err_ret;
-	int minor;
+	struct dma_heap *heap, *err_ret;
+	unsigned int minor;
 	int ret;
 
 	if (!exp_info->name || !strcmp(exp_info->name, "")) {
@@ -318,6 +315,15 @@ struct dma_heap *dma_heap_add(const struct dma_heap_export_info *exp_info)
 
 	if (!exp_info->ops || !exp_info->ops->allocate) {
 		pr_err("dma_heap: Cannot add heap with invalid ops struct\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	/* check the name is unique */
+	heap = dma_heap_find(exp_info->name);
+	if (heap) {
+		pr_err("dma_heap: Already registered heap named %s\n",
+		       exp_info->name);
+		dma_heap_put(heap);
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -331,13 +337,13 @@ struct dma_heap *dma_heap_add(const struct dma_heap_export_info *exp_info)
 	heap->priv = exp_info->priv;
 
 	/* Find unused minor number */
-	ret = idr_alloc(&dma_heap_minors, heap, 0, NUM_HEAP_MINORS, GFP_KERNEL);
+	ret = xa_alloc(&dma_heap_minors, &minor, heap,
+		       XA_LIMIT(0, NUM_HEAP_MINORS - 1), GFP_KERNEL);
 	if (ret < 0) {
 		pr_err("dma_heap: Unable to get minor number for heap\n");
 		err_ret = ERR_PTR(ret);
 		goto err0;
 	}
-	minor = ret;
 
 	/* Create device */
 	heap->heap_devt = MKDEV(MAJOR(dma_heap_devt), minor);
@@ -364,31 +370,17 @@ struct dma_heap *dma_heap_add(const struct dma_heap_export_info *exp_info)
 	/* Make sure it doesn't disappear on us */
 	heap->heap_dev = get_device(heap->heap_dev);
 
-	mutex_lock(&heap_list_lock);
-	/* check the name is unique */
-	list_for_each_entry(h, &heap_list, list) {
-		if (!strcmp(h->name, exp_info->name)) {
-			mutex_unlock(&heap_list_lock);
-			pr_err("dma_heap: Already registered heap named %s\n",
-			       exp_info->name);
-			err_ret = ERR_PTR(-EINVAL);
-			put_device(heap->heap_dev);
-			goto err3;
-		}
-	}
-
 	/* Add heap to the list */
+	mutex_lock(&heap_list_lock);
 	list_add(&heap->list, &heap_list);
 	mutex_unlock(&heap_list_lock);
 
 	return heap;
 
-err3:
-	device_destroy(dma_heap_class, heap->heap_devt);
 err2:
 	cdev_del(&heap->heap_cdev);
 err1:
-	idr_remove(&dma_heap_minors, minor);
+	xa_erase(&dma_heap_minors, minor);
 err0:
 	kfree(heap);
 	return err_ret;
@@ -400,21 +392,81 @@ static char *dma_heap_devnode(struct device *dev, umode_t *mode)
 	return kasprintf(GFP_KERNEL, "dma_heap/%s", dev_name(dev));
 }
 
+static ssize_t total_pools_kb_show(struct kobject *kobj,
+				   struct kobj_attribute *attr, char *buf)
+{
+	struct dma_heap *heap;
+	u64 total_pool_size = 0;
+
+	mutex_lock(&heap_list_lock);
+	list_for_each_entry(heap, &heap_list, list) {
+		if (heap->ops->get_pool_size)
+			total_pool_size += heap->ops->get_pool_size(heap);
+	}
+	mutex_unlock(&heap_list_lock);
+
+	return sysfs_emit(buf, "%llu\n", total_pool_size / 1024);
+}
+
+static struct kobj_attribute total_pools_kb_attr =
+	__ATTR_RO(total_pools_kb);
+
+static struct attribute *dma_heap_sysfs_attrs[] = {
+	&total_pools_kb_attr.attr,
+	NULL,
+};
+
+ATTRIBUTE_GROUPS(dma_heap_sysfs);
+
+static struct kobject *dma_heap_kobject;
+
+static int dma_heap_sysfs_setup(void)
+{
+	int ret;
+
+	dma_heap_kobject = kobject_create_and_add("dma_heap", kernel_kobj);
+	if (!dma_heap_kobject)
+		return -ENOMEM;
+
+	ret = sysfs_create_groups(dma_heap_kobject, dma_heap_sysfs_groups);
+	if (ret) {
+		kobject_put(dma_heap_kobject);
+		return ret;
+	}
+
+	return 0;
+}
+
+static void dma_heap_sysfs_teardown(void)
+{
+	kobject_put(dma_heap_kobject);
+}
+
 static int dma_heap_init(void)
 {
 	int ret;
 
-	ret = alloc_chrdev_region(&dma_heap_devt, 0, NUM_HEAP_MINORS, DEVNAME);
+	ret = dma_heap_sysfs_setup();
 	if (ret)
 		return ret;
 
+	ret = alloc_chrdev_region(&dma_heap_devt, 0, NUM_HEAP_MINORS, DEVNAME);
+	if (ret)
+		goto err_chrdev;
+
 	dma_heap_class = class_create(THIS_MODULE, DEVNAME);
 	if (IS_ERR(dma_heap_class)) {
-		unregister_chrdev_region(dma_heap_devt, NUM_HEAP_MINORS);
-		return PTR_ERR(dma_heap_class);
+		ret = PTR_ERR(dma_heap_class);
+		goto err_class;
 	}
 	dma_heap_class->devnode = dma_heap_devnode;
 
 	return 0;
+
+err_class:
+	unregister_chrdev_region(dma_heap_devt, NUM_HEAP_MINORS);
+err_chrdev:
+	dma_heap_sysfs_teardown();
+	return ret;
 }
 subsys_initcall(dma_heap_init);
