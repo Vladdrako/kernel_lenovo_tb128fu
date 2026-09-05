@@ -45,7 +45,6 @@
 #include <uapi/linux/dma-buf.h>
 #include <uapi/linux/magic.h>
 
-int is_dma_buf_file(struct file *);
 #include "dma-buf-sysfs-stats.h"
 
 struct dma_buf_list {
@@ -185,93 +184,9 @@ static struct file_system_type dma_buf_fs_type = {
 	.kill_sb = kill_anon_super,
 };
 
-/*
- * Load up this CPU's task_dma_buf_record_preload list with requested number of
- * records. On success, returns true, with preemption disabled. On error,
- * return false with preemption not disabled.
- */
-static inline void init_task_dmabuf_record_pool(void) {}
-
-/**
- * dma_buf_account_task - Account a dmabuf to a task
- * @dmabuf:	[in]	pointer to dma_buf
- * @task:	[in]	pointer to task_struct
- *
- * When a process obtains a dmabuf file descriptor, or maps a dmabuf, this
- * function attributes the provided @dmabuf to the @task. The first time @dmabuf
- * is attributed to @task, the buffer's size is added to the @task's dmabuf RSS.
- *
- * Return:
- * * 0 on success
- * * A negative error code upon error
- */
-int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
-{
-	return 0;
-}
-
-/**
- * dma_buf_unaccount_task - Unaccount a dmabuf from a task
- * @dmabuf:	[in]	pointer to dma_buf
- * @task:	[in]	pointer to task_struct
- *
- * When a process closes a dmabuf file descriptor, or unmaps a dmabuf, this
- * function removes the provided @dmabuf attribution from the @task. When all
- * references to @dmabuf are removed from @task, the buffer's size is removed
- * from the task's dmabuf RSS.
- */
-void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
-{
-}
-
-int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
-{
-	if (current->dmabuf_info && (clone_flags & (CLONE_VM | CLONE_FILES))
-						== (CLONE_VM | CLONE_FILES)) {
-		/*
-		 * Both MM and FD references to dmabufs are shared with the parent,
-		 * so we can share a RSS counter with the parent.
-		 */
-		refcount_inc(&current->dmabuf_info->refcnt);
-		task->dmabuf_info = current->dmabuf_info;
-		return 0;
-	}
-
-	/*
-	 * Allocate now even if !current->dmabuf_info instead of during
-	 * accounting to avoid races which can override task->dmabuf_info.
-	 */
-	task->dmabuf_info = kzalloc(sizeof(*task->dmabuf_info), GFP_KERNEL);
-	if (!task->dmabuf_info)
-		return -ENOMEM;
-
-	refcount_set(&task->dmabuf_info->refcnt, 1);
-	spin_lock_init(&task->dmabuf_info->lock);
-	INIT_LIST_HEAD(&task->dmabuf_info->dmabufs);
-	task->dmabuf_info->dmabuf_count = 0;
-	task->dmabuf_info->rss = 0;
-	task->dmabuf_info->rss_hwm = 0;
-	task->dmabuf_info->pss = 0;
-
-	return 0;
-}
-
-void put_dmabuf_info(struct task_struct *task)
-{
-	if (!task->dmabuf_info)
-		return;
-
-	if (!refcount_dec_and_test(&task->dmabuf_info->refcnt))
-		return;
-
-	kfree(task->dmabuf_info);
-	task->dmabuf_info = NULL;
-}
-
 static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
 {
 	struct dma_buf *dmabuf;
-	int ret, acct_err;
 
 	if (!is_dma_buf_file(file))
 		return -EINVAL;
@@ -287,16 +202,7 @@ static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
 	    dmabuf->size >> PAGE_SHIFT)
 		return -EINVAL;
 
-	acct_err = dma_buf_account_task(dmabuf, current);
-	if (acct_err)
-		pr_err("dmabuf accounting failed during mmap operation, err %d\n",
-		       acct_err);
-
-	ret = dmabuf->ops->mmap(dmabuf, vma);
-	if (ret && !acct_err)
-		dma_buf_unaccount_task(dmabuf, current);
-
-	return ret;
+	return dmabuf->ops->mmap(dmabuf, vma);
 }
 
 static loff_t dma_buf_llseek(struct file *file, loff_t offset, int whence)
@@ -598,13 +504,6 @@ static void dma_buf_show_fdinfo(struct seq_file *m, struct file *file)
 	spin_unlock(&dmabuf->name_lock);
 }
 
-static int dma_buf_flush(struct file *file, fl_owner_t id)
-{
-	/* When dmabuf FD is closed we should unaccount it */
-	dma_buf_unaccount_task(file->private_data, current);
-	return 0;
-}
-
 static const struct file_operations dma_buf_fops = {
 	.release = dma_buf_file_release,
 	.mmap = dma_buf_mmap_internal,
@@ -613,7 +512,6 @@ static const struct file_operations dma_buf_fops = {
 	.unlocked_ioctl = dma_buf_ioctl,
 	.compat_ioctl	= compat_ptr_ioctl,
 	.show_fdinfo = dma_buf_show_fdinfo,
-	.flush = dma_buf_flush,
 };
 
 /*
@@ -1337,7 +1235,7 @@ int dma_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma,
 		 unsigned long pgoff)
 {
 	struct file *oldfile;
-	int ret, acct_err;
+	int ret;
 
 	if (WARN_ON(!dmabuf || !vma))
 		return -EINVAL;
@@ -1361,11 +1259,6 @@ int dma_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma,
 	vma->vm_file = dmabuf->file;
 	vma->vm_pgoff = pgoff;
 
-	acct_err = dma_buf_account_task(dmabuf, current);
-	if (acct_err)
-		pr_err("dmabuf accounting failed during mmap operation, err %d\n",
-		       acct_err);
-
 	ret = dmabuf->ops->mmap(dmabuf, vma);
 	if (ret) {
 		/* restore old parameters on failure */
@@ -1376,6 +1269,7 @@ int dma_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma,
 			fput(oldfile);
 	}
 	return ret;
+
 }
 EXPORT_SYMBOL_GPL(dma_buf_mmap);
 
@@ -1770,7 +1664,6 @@ static int __init dma_buf_init(void)
 
 	mutex_init(&db_list.lock);
 	INIT_LIST_HEAD(&db_list.head);
-	init_task_dmabuf_record_pool();
 	dma_buf_init_debugfs();
 	return 0;
 }

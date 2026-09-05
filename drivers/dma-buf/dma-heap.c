@@ -1,36 +1,33 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * DMABUF Heaps Allocation Infrastructure
+ * Framework for userspace DMA-BUF allocations
  *
  * Copyright (C) 2011 Google, Inc.
  * Copyright (C) 2019 Linaro Ltd.
  */
 
-#define pr_fmt(fmt) "dma_heap: " fmt
-
 #include <linux/cdev.h>
-#include <linux/dma-buf.h>
-#include <linux/dma-heap.h>
-#include <linux/err.h>
-#include <linux/module.h>
+#include <linux/debugfs.h>
 #include <linux/device.h>
-#include <linux/fs.h>
-#include <linux/kobject.h>
-#include <linux/kref.h>
-#include <linux/nospec.h>
-#include <linux/sysfs.h>
-#include <linux/uaccess.h>
+#include <linux/dma-buf.h>
+#include <linux/err.h>
 #include <linux/xarray.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+#include <linux/nospec.h>
+#include <linux/uaccess.h>
+#include <linux/syscalls.h>
+#include <linux/dma-heap.h>
 #include <uapi/linux/dma-heap.h>
 
 #define DEVNAME "dma_heap"
+
 #define NUM_HEAP_MINORS 128
 
 /**
- * struct dma_heap - represents a device created to allocate dmabufs
- * @name:		used to generate /dev/dma_heap/<name>
- * @ops:		ops to operate on this heap
- * @priv:		private data to the heap
+ * struct dma_heap - represents a dmabuf heap in the system
+ * @name:		used for debugging/device-node name
+ * @ops:		ops struct for this heap
  * @heap_devt		heap device node
  * @list		list head connecting to list of heaps
  * @heap_cdev		heap char device
@@ -55,12 +52,6 @@ static dev_t dma_heap_devt;
 static struct class *dma_heap_class;
 static DEFINE_XARRAY_ALLOC(dma_heap_minors);
 
-bool __read_mostly mem_accounting;
-EXPORT_SYMBOL_GPL(mem_accounting);
-module_param(mem_accounting, bool, 0444);
-MODULE_PARM_DESC(mem_accounting,
-		 "Enable cgroup-based memory accounting for dma-buf heap allocations (default=false).");
-
 struct dma_heap *dma_heap_find(const char *name)
 {
 	struct dma_heap *h;
@@ -78,6 +69,7 @@ struct dma_heap *dma_heap_find(const char *name)
 }
 EXPORT_SYMBOL_GPL(dma_heap_find);
 
+
 void dma_heap_buffer_free(struct dma_buf *dmabuf)
 {
 	dma_buf_put(dmabuf);
@@ -85,8 +77,8 @@ void dma_heap_buffer_free(struct dma_buf *dmabuf)
 EXPORT_SYMBOL_GPL(dma_heap_buffer_free);
 
 struct dma_buf *dma_heap_buffer_alloc(struct dma_heap *heap, size_t len,
-				      u32 fd_flags,
-				      u64 heap_flags)
+				      unsigned int fd_flags,
+				      unsigned int heap_flags)
 {
 	if (fd_flags & ~DMA_HEAP_VALID_FD_FLAGS)
 		return ERR_PTR(-EINVAL);
@@ -106,8 +98,8 @@ struct dma_buf *dma_heap_buffer_alloc(struct dma_heap *heap, size_t len,
 EXPORT_SYMBOL_GPL(dma_heap_buffer_alloc);
 
 int dma_heap_bufferfd_alloc(struct dma_heap *heap, size_t len,
-			    u32 fd_flags,
-			    u64 heap_flags)
+			    unsigned int fd_flags,
+			    unsigned int heap_flags)
 {
 	struct dma_buf *dmabuf;
 	int fd;
@@ -123,6 +115,7 @@ int dma_heap_bufferfd_alloc(struct dma_heap *heap, size_t len,
 		/* just return, as put will call release and that will free */
 	}
 	return fd;
+
 }
 EXPORT_SYMBOL_GPL(dma_heap_bufferfd_alloc);
 

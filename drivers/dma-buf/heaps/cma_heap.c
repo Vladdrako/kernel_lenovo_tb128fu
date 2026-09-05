@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * DMABUF CMA Heap Implementation
+ * DMABUF CMA heap exporter
  *
- * Copyright (C) 2012 Texas Instruments Incorporated - http://www.ti.com/
- *	Author: Rob Clark <rob@ti.com>
+ * Copyright (C) 2012, 2019, 2020 Linaro Ltd.
+ * Author: <benjamin.gaignard@linaro.org> for ST-Ericsson.
  *
  * Also utilizing parts of Andrew Davis' SRAM heap:
  * Copyright (C) 2019 Texas Instruments Incorporated - http://www.ti.com/
@@ -22,6 +22,7 @@
 #include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+
 
 struct cma_heap {
 	struct dma_heap *heap;
@@ -270,8 +271,8 @@ static const struct dma_buf_ops cma_heap_buf_ops = {
 
 static struct dma_buf *cma_heap_allocate(struct dma_heap *heap,
 					 unsigned long len,
-					 u32 fd_flags,
-					 u64 heap_flags)
+					 unsigned long fd_flags,
+					 unsigned long heap_flags)
 {
 	struct cma_heap *cma_heap = dma_heap_get_drvdata(heap);
 	struct cma_heap_buffer *buffer;

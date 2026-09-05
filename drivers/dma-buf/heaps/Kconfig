@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0
 config DMABUF_HEAPS_DEFERRED_FREE
 	tristate
 
@@ -21,21 +20,3 @@ config DMABUF_HEAPS_CMA
 	  Choose this option to enable dma-buf CMA heap. This heap is backed
 	  by the Contiguous Memory Allocator (CMA). If your system has these
 	  regions, you should say Y here.
-
-config DMABUF_HEAPS_QCOM_CARVEOUT
-	bool "DMA-BUF Qualcomm Carveout Heap"
-	depends on DMABUF_HEAPS
-	help
-	  Choose this option to enable the Qualcomm carveout dmabuf heap. This heap
-	  provides memory allocation from reserved memory regions for secure display
-	  and other carveout needs. If your platform uses reserved memory regions,
-	  say Y here.
-
-config DMABUF_HEAPS_QCOM_SECURE_CMA
-	bool "DMA-BUF Qualcomm Secure CMA Heap"
-	depends on DMABUF_HEAPS && DMA_CMA && ARCH_QCOM
-	help
-	  Choose this option to enable the Qualcomm secure CMA dmabuf heap. This heap
-	  provides secure memory allocation from CMA regions for GPU firmware and
-	  other secure needs. If your platform uses secure CMA for GPU firmware,
-	  say Y here.
