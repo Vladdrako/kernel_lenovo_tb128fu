@@ -449,7 +449,6 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx,
 	const int i = insn - ctx->prog->insnsi;
 	const bool is64 = BPF_CLASS(code) == BPF_ALU64 ||
 			  BPF_CLASS(code) == BPF_JMP;
-	const bool is32 = BPF_CLASS(code) == BPF_JMP32;
 	const bool isdw = BPF_SIZE(code) == BPF_DW;
 	u8 jmp_cond, reg;
 	s32 jmp_offset;

@@ -4358,6 +4358,8 @@ static int check_atomic(struct bpf_verifier_env *env, int insn_idx, struct bpf_i
 		load_reg = -1;
 	}
 
+	/* check whether we can read the memory */
+	err = check_mem_access(env, insn_idx, insn->dst_reg, insn->off,
 			       BPF_SIZE(insn->code), BPF_READ, load_reg, true, false);
 	if (err)
 		return err;
