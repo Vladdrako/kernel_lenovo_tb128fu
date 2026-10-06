@@ -468,9 +468,15 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 	//+OAK78,shenwenbin.wt,MOD,20211115,improve ocp2138 driver for double wakeup
 	if(!Suspend_Double_WakeUp_Status)	//OAK78,shenwenbin.wt,MOD,20211130,double wakeup sometime SPI not wake
 	{
-		rc= ocp2138_BiasPower_enable(LCM_LDO_VOL_5V7, LCM_LDO_VOL_5V7,5);
+		rc= ocp2138_BiasPower_enable(LCM_LDO_VOL_5V7, LCM_LDO_VOL_5V7, 15);
 		if(rc < 0)
 			DSI_ERR("panel external bias ocp2138 power on fail\n");
+	} else {
+		/* DT2W resume: bias stayed on but VCOM may have drifted.
+		 * Re-write voltage registers to ensure clean wakeup. */
+		rc = ocp2138_BiasPower_enable(LCM_LDO_VOL_5V7, LCM_LDO_VOL_5V7, 10);
+		if(rc < 0)
+			DSI_ERR("panel bias ocp2138 refresh on dt2w resume fail\n");
 	}
 	//-OAK78,shenwenbin.wt,MOD,20211115,improve ocp2138 driver for double wakeup
 	//-Mtr6481,shenwenbin.wt,ADD,20211021,improve ocp2138 driver
@@ -4519,6 +4525,13 @@ int dsi_panel_enable(struct dsi_panel *panel)
 		       panel->name, rc);
 	else
 		panel->panel_initialized = true;
+
+	/* Allow GRAM to fill with valid video data before backlight
+	 * turns on — prevents 10-15s VCOM settling flicker on
+	 * HX83102P BOE and NT36523W Tianma panels. */
+	if (panel->panel_initialized)
+		usleep_range(20000, 22000);
+
 	mutex_unlock(&panel->panel_lock);
 	return rc;
 }
