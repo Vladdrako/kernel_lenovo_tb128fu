@@ -596,7 +596,6 @@
 	.BTF : AT(ADDR(.BTF) - LOAD_OFFSET) {				\
 		__start_BTF = .;					\
 		*(.BTF)							\
-		. = ALIGN(8);						\
 		__stop_BTF = .;						\
 	}								\
 	. = ALIGN(8);							\
