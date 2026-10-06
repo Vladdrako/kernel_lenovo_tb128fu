@@ -59,6 +59,10 @@ uint16_t gest_key_def[GEST_SUP_NUM] = {
 
 uint8_t *wake_event_buffer;
 extern uint8_t Double_WakeUp_Status(void);	//OAK78,shenwenbin.wt,MOD,20211115,tuning double wakeup
+
+/* DT2W debounce protection - avoid duplicate wake events from multiple taps or bounces */
+static unsigned long last_dt2w_jiffies = 0;
+#define DT2W_DEBOUNCE_MS 400
 #endif
 
 
@@ -1027,6 +1031,8 @@ int himax_input_register(struct himax_ts_data *ts)
 #if defined(HX_SMART_WAKEUP)
 	for (i = 0; i < GEST_SUP_NUM; i++)
 		set_bit(gest_key_def[i], ts->input_dev->keybit);
+	set_bit(KEY_WAKEUP, ts->input_dev->keybit);
+	input_set_capability(ts->input_dev, EV_KEY, KEY_WAKEUP);
 #elif defined(CONFIG_TOUCHSCREEN_HIMAX_INSPECT) || defined(HX_PALM_REPORT)
 	set_bit(KEY_POWER, ts->input_dev->keybit);
 	set_bit(KEY_WAKEUP, ts->input_dev->keybit);
@@ -1458,6 +1464,14 @@ static void himax_wake_event_report(void)
 		I("%s: Entering!\n", __func__);
 
 	if (KEY_EVENT) {
+		unsigned long now = jiffies;
+		if (last_dt2w_jiffies && time_before(now, last_dt2w_jiffies + msecs_to_jiffies(DT2W_DEBOUNCE_MS))) {
+			I("%s DT2W debounce: ignoring rapid wake event\n", __func__);
+			g_target_report_data->SMWP_event_chk = 0;
+			return;
+		}
+		last_dt2w_jiffies = now;
+
 		I("%s SMART WAKEUP KEY event %d press\n", __func__, KEY_EVENT);
 		input_report_key(private_ts->input_dev, KEY_EVENT, 1);
 		input_sync(private_ts->input_dev);
@@ -3828,6 +3842,7 @@ int himax_chip_common_suspend(struct himax_ts_data *ts)
 			g_core_fp._ap_notify_fw_sus(1);
 		atomic_set(&ts->suspend_mode, 1);
 		ts->pre_finger_mask = 0;
+		last_dt2w_jiffies = 0;
 		I("%s: SMART WAKE UP enable, reject suspend\n", __func__);
 		goto END;
 	}
